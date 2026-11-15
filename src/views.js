@@ -11,6 +11,7 @@ const stage = (d, o) => {
   return 'pack';
 };
 
+const rank = (o) => (['buy', 'pack', 'hub'].includes(o.stage) ? 0 : o.stage === 'way' ? 1 : 2); // work to do first
 const area = (o) => [o.recipient?.city, o.recipient?.province].filter(Boolean).join(', ') || o.address.island;
 
 export function shopView(d, shopId, catalog, now) {
@@ -45,7 +46,7 @@ export function shopView(d, shopId, catalog, now) {
       items: ours ? d.need(o).map((n) => ({ sku: n.sku, name: n.name, qty: n.qty })) : [],
       lines: o.lines ?? [], dropped: o.dropped.map((x) => x.name),
     };
-  }).sort((a, b) => b.paidAt - a.paidAt);
+  }).sort((a, b) => rank(a) - rank(b) || b.paidAt - a.paidAt);
   const stock = catalog.stockItems.map((i) => ({ ...i, qty: shop.stock[i.sku] ?? 0, held: shop.reserved[i.sku] ?? 0 }));
   return {
     now, shop: { id: shop.id, name: shop.name, city: shop.city, active: shop.active, strikes: shop.strikes },

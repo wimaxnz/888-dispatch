@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>888 Partner Shop</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+.wrap { max-width: 520px }
+.who { margin-left: auto; text-align: right; min-width: 0 }
+.who b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.online { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid rgba(255,255,255,.3); color: var(--brand-ink); border-radius: 999px; padding: 2px 10px 2px 8px; font-size: 12px; cursor: pointer }
+.online i { width: 8px; height: 8px; border-radius: 50%; background: #6fd394 }
+.online[aria-pressed="false"] i { background: #9a8a7c }
+.packlist label { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px }
+.packlist input { width: 20px; height: 20px; flex: none; accent-color: var(--ok) }
+.deadline { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; align-items: baseline; flex-wrap: wrap }
+.deadline b { font: 700 18px/1 var(--f-head) }
+.stepper { display: flex; align-items: center; gap: 4px; flex: none }
+.stepper button { width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--soft); font-size: 18px; cursor: pointer }
+.stepper input { width: 48px; text-align: center; border: 1px solid var(--line); border-radius: 8px; padding: 6px 2px; background: var(--surface); font-weight: 700 }
+.search { border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; width: 100%; background: var(--surface); font-size: 15px }
+.group { font: 700 13px var(--f-head); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 10px }
+.total { text-align: center }
+.total strong { display: block; font: 800 34px/1.1 var(--f-head); color: var(--ok) }
+.rows { list-style: none; margin: 0; padding: 0 }
+.rows li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px }
+.rows li:last-child { border: 0 }
+.lines { margin: 0; padding-left: 18px; font-size: 14px }
+.lines small { color: var(--muted) }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <img src="logo.png" alt="888 Grocery">
+    <div class="who" id="who" hidden>
+      <b id="shopName"></b>
+      <button class="online" id="online" aria-pressed="true"><i></i><span>Taking orders</span></button>
+    </div>
+  </div>
+  <nav class="wrap tabs" role="tablist" id="tabs" hidden>
+    <button role="tab" data-tab="offers" aria-selected="true">Offers</button>
+    <button role="tab" data-tab="orders" aria-selected="false">My orders</button>
+    <button role="tab" data-tab="stock" aria-selected="false">Stock</button>
+    <button role="tab" data-tab="earn" aria-selected="false">Earnings</button>
+  </nav>
+</header>
+<div class="wrap"><main id="view"><div class="empty"><b>Loading…</b></div></main></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const params = new URLSearchParams(location.hash.slice(1));
+const TOKEN = params.get('t');
+const API = (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(params.get('api') || '') ? params.get('api') : 'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api');
+const MIN = 60000, HOUR = 60 * MIN;
+const peso = (n) => '₱' + Math.round(n).toLocaleString('en-PH');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = new Intl.DateTimeFormat('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const left = (ms) => { if (ms <= 0) return '0:00'; const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(s % 60).padStart(2, '0')}`; };
+
+let V = null, skew = 0, tab = 'offers', ui = {}, busy = false, stockQ = '';
+const now = () => Date.now() + skew;
+try { tab = localStorage.getItem('888-shop-tab') || 'offers'; } catch {}
+
+async function call(method, body) {
+  const res = await fetch(method === 'GET' ? `${API}/shop?t=${encodeURIComponent(TOKEN)}` : `${API}/shop`, {
+    method, headers: { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : JSON.stringify({ t: TOKEN, ...body }),
+  });
+  const data = await res.json().catch(() => ({ error: 'No answer from 888. Check your internet.' }));
+  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+}
+function take(view) { V = view; skew = view.now - Date.now(); render(); }
+async function load() {
+  try { take(await call('GET')); } catch (e) { if (!V) document.getElementById('view').innerHTML = `<div class="empty"><b>Can't open your shop</b>${esc(e.message)}</div>`; }
+}
+async function act(body, okMsg) {
+  if (busy) return; busy = true;
+  try { const r = await call('POST', body); take(r.view); toast(r.result?.ok === false ? (r.result.reason || 'That didn\'t work. Try again.') : okMsg); return r.result; }
+  catch (e) { toast(e.message); } finally { busy = false; }
+}
+
+// ---------- Views ----------
+function offerCard(o) {
+  const count = o.items.reduce((t, i) => t + i.qty, 0);
+  return `<article class="card">
+    <div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">${esc(o.area)} · ${o.km} km from you · paid ${peso(o.paid)}</p></div>
+      <span class="chip num" data-until="${o.expiresAt}">${left(o.expiresAt - now())}</span></div>
+    <dl class="facts"><div><dt>You earn</dt><dd class="num good">${peso(o.payout)}</dd></div><div><dt>Ship by</dt><dd>${when.format(o.deadline)}</dd></div><div><dt>Items</dt><dd class="num">${count}</dd></div></dl>
+    ${o.missing.length ? `<div class="warn"><strong>You're short of ${o.missing.length} item${o.missing.length > 1 ? 's' : ''}</strong>
+      <ul>${o.missing.map((m) => `<li>${m.qty} × ${esc(m.name)}</li>`).join('')}</ul>
+      <p class="note" style="color:inherit">You can still take it if you buy ${o.missing.length > 1 ? 'them' : 'it'} in within ${V.rules.sourceWithinHours} hours. Your pay covers the full order.</p>
+      <label class="promise"><input type="checkbox" data-promise="${o.id}"> I will buy in the missing items and ship within ${V.rules.shipWithinHours} hours</label></div>` : ''}
+    ${o.dropped.length ? `<p class="note">888 removed ${o.dropped.map(esc).join(', ')} (no shop could get it; the buyer was refunded).</p>` : ''}
+    <details><summary>See all ${count} items</summary><ul class="items">${o.items.map((i) => `<li class="${i.short ? 'short' : ''}"><span class="mark">${i.short ? '✕' : '✓'}</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}${i.short ? `<small>you have ${i.have}</small>` : ''}</span></li>`).join('')}</ul></details>
+    ${o.others ? `<p class="note">Also offered to ${o.others} other shop${o.others > 1 ? 's' : ''}. First to accept gets it.</p>` : ''}
+    <div class="actions">
+      <button class="btn primary wide" data-act="accept" data-id="${o.id}" ${o.missing.length ? 'disabled' : ''}>Accept order</button>
+      ${o.missing.length ? `<button class="btn" data-act="cant" data-id="${o.id}">Can't get items</button>` : ''}
+      <button class="btn ${o.missing.length ? '' : 'wide'}" data-act="busy" data-id="${o.id}">Busy / closed</button>
+    </div></article>`;
+}
+
+function orderCard(o) {
+  const u = (ui[o.id] ??= { ticks: {} });
+  const head = `<div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">Order ${esc(o.id)} · you earn ${peso(o.payout)}</p></div></div>`;
+  if (o.stage === 'lost') {
+    const why = o.lostWhy === 'cant_source' ? 'You said you couldn\'t get the items. It went to another shop. No strike.'
+      : o.lostWhy === 'sourcing_missed' ? 'You didn\'t confirm the missing items in time. It went to another shop and you got a strike.'
+      : o.lostWhy === 'deadline_missed' ? 'It wasn\'t shipped within 24 hours. It isn\'t paid, you got a strike, and 888 is sending it.'
+      : 'This order was moved to another shop.';
+    return `<article class="card">${head}<div class="status bad"><b>No longer yours</b>${why}</div></article>`;
+  }
+  const steps = [...(o.partial ? [['buy', 'Buy items']] : []), ['pack', 'Pack'], ['ship', 'Ship'], ['way', 'Delivered']];
+  const st = o.stage === 'pack' && u.packed ? 'ship' : o.stage;
+  const at = st === 'done' ? steps.length : steps.findIndex((s) => s[0] === st);
+  const bar = `<ol class="steps">${steps.map(([k, l], i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}">${l}</li>`).join('')}</ol>`;
+  const r = o.recipient || {};
+  const live = ['buy', 'pack'].includes(o.stage);
+  let body = '';
+  if (o.stage === 'buy') {
+    body = `<h4>Buy in the missing items</h4><ul class="items">${o.sourcing.missing.map((m) => `<li class="short"><span class="mark">✕</span><span class="q num">${m.qty}×</span><span class="n">${esc(m.name)}</span></li>`).join('')}</ul>
+      <div class="deadline"><span>Confirm within</span><b class="num" data-until="${o.sourcing.sourceBy}">${left(o.sourcing.sourceBy - now())}</b></div>
+      <div class="actions"><button class="btn primary wide" data-act="sourced" data-id="${o.id}">I have all the items now</button>
+      <button class="btn danger wide" data-act="cantsource" data-id="${o.id}">${u.confirmCant ? 'Tap again: give this order to another shop' : 'I can\'t get them'}</button></div>
+      <p class="note">Saying "I can't get them" before the time is up gives no strike. Saying nothing gives a strike.</p>`;
+  } else if (st === 'pack') {
+    const all = o.items.every((i) => u.ticks[i.sku]);
+    body = `<h4>Pack the order</h4><p class="note">Tick each item as it goes in.</p>
+      ${o.lines.some((l) => l.contents) ? `<p class="note">Bundles: ${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
+      <div class="packlist">${o.items.map((i) => `<label><input type="checkbox" data-tick="${o.id}|${esc(i.sku)}" ${u.ticks[i.sku] ? 'checked' : ''}><span class="num">${i.qty}×</span> ${esc(i.name)}</label>`).join('')}</div>
+      <button class="btn primary" data-act="packed" data-id="${o.id}" ${all ? '' : 'disabled'}>Packed: ready for the courier</button>`;
+  } else if (st === 'ship') {
+    body = `<h4>Hand it to the courier</h4>
+      <label class="field">Courier<select data-courier="${o.id}">${['Lalamove', 'Grab Express', 'J&T Express', 'LBC', 'Own rider'].map((c) => `<option ${u.courier === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+      <label class="field">Tracking or booking number<input id="track-${esc(o.id)}" data-track="${o.id}" value="${esc(u.tracking ?? '')}" placeholder="e.g. LLM-58213" autocomplete="off"></label>
+      <button class="btn primary" data-act="ship" data-id="${o.id}" ${u.tracking ? '' : 'disabled'}>Handed to courier</button>`;
+  } else if (o.stage === 'way') {
+    body = `<div class="status info"><b>On the way</b>Tracking ${esc(o.tracking)}.</div>
+      <button class="btn" data-act="delivered" data-id="${o.id}">${u.confirmDeliv ? 'Tap again: the family has it' : 'It was delivered'}</button>`;
+  } else if (o.stage === 'done') {
+    body = o.payoutStatus ? `<div class="status ok"><b>Delivered · ${peso(o.payout)} ${o.payoutStatus === 'paid' ? 'paid to you' : 'to be paid'}</b>Thank you!</div>`
+      : `<div class="status bad"><b>Delivered</b>Shipped after the deadline, so it isn't paid.</div>`;
+  } else if (o.stage === 'hub') {
+    body = `<div class="status bad"><b>888 is sending this one</b></div>`;
+  }
+  return `<article class="card">${head}${bar}
+    ${o.recipient ? `<div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}${r.province ? ', ' + esc(r.province) : ''}</div>` : ''}
+    ${o.note ? `<p class="note">Note from the buyer: “${esc(o.note)}”</p>` : ''}
+    ${live ? `<div class="deadline"><span>Ship by ${when.format(o.deadline)}</span><b class="num" data-until="${o.deadline}">${left(o.deadline - now())}</b></div>` : ''}
+    ${o.dropped.length ? `<p class="note">Removed by 888: ${o.dropped.map(esc).join(', ')}. Don't pack it.</p>` : ''}
+    ${body}</article>`;
+}
+
+function stockView() {
+  const f = stockQ.trim().toLowerCase();
+  const rows = V.stock.filter((i) => !f || i.name.toLowerCase().includes(f));
+  let group = '';
+  const html = rows.map((i) => {
+    const g = i.group !== group ? `<li class="group">${esc(i.group)}</li>` : ''; group = i.group;
+    return `${g}<li><span class="n">${esc(i.name)}${i.held ? `<small>${i.held} on hold for orders</small>` : ''}</span>
+      <span class="stepper"><button data-step="${esc(i.sku)}|-1" aria-label="One less">−</button><input inputmode="numeric" data-qty="${esc(i.sku)}" value="${i.qty}" aria-label="${esc(i.name)} in stock"><button data-step="${esc(i.sku)}|1" aria-label="One more">+</button></span></li>`;
+  }).join('');
+  return `<section class="card"><h3>What's on your shelf</h3>
+    <p class="note">Keep these numbers right. 888 only sends you orders you can fill, or are short of 1–2 items for.</p>
+    <input class="search" id="stock-q" type="search" placeholder="Search items" value="${esc(stockQ)}">
+    <ul class="items" id="stock-list">${html || '<li>No item matches.</li>'}</ul></section>`;
+}
+
+function earnView() {
+  const done = V.orders.filter((o) => o.stage === 'done' && o.payoutStatus);
+  const owed = done.filter((o) => o.payoutStatus === 'payable').reduce((t, o) => t + o.payout, 0);
+  return `<section class="card total"><span class="note">To be paid to you</span><strong class="num">${peso(owed)}</strong><p class="note">888 pays delivered orders that shipped on time.</p></section>
+    <section class="card"><h3>Delivered</h3>${done.length ? `<ul class="rows">${done.map((o) => `<li><span>${esc(o.title)}<br><span class="note">${o.payoutStatus === 'paid' ? 'Paid' : 'To be paid'}</span></span><b class="num">${peso(o.payout)}</b></li>`).join('')}</ul>` : '<p class="note">Nothing delivered yet.</p>'}</section>
+    <section class="card"><h3>Your record</h3><p>${V.shop.strikes} of ${V.rules.strikesToSuspend} strikes</p>
+    <p class="note">A strike is given for missing the ${V.rules.shipWithinHours}-hour deadline or not confirming bought-in items in time. ${V.rules.strikesToSuspend} strikes pauses your shop.</p></section>`;
+}
+
+function render() {
+  if (!V) return;
+  document.getElementById('who').hidden = false; document.getElementById('tabs').hidden = false;
+  document.getElementById('shopName').textContent = V.shop.name;
+  const on = document.getElementById('online'); on.setAttribute('aria-pressed', String(V.shop.active)); on.querySelector('span').textContent = V.shop.active ? 'Taking orders' : 'Paused';
+  const active = V.orders.filter((o) => ['buy', 'pack'].includes(o.stage)).length;
+  for (const b of document.querySelectorAll('[data-tab]')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    const n = b.dataset.tab === 'offers' ? V.offers.length : b.dataset.tab === 'orders' ? active : 0;
+    b.innerHTML = { offers: 'Offers', orders: 'My orders', stock: 'Stock', earn: 'Earnings' }[b.dataset.tab] + (n ? `<span class="badge num">${n}</span>` : '');
+  }
+  const a = document.activeElement, fid = a?.id, sel = a?.selectionStart;
+  const v = document.getElementById('view');
+  if (tab === 'offers') v.innerHTML = V.offers.length ? V.offers.map(offerCard).join('') : `<div class="empty"><b>No new offers right now</b>When someone orders near you and you have the items, it shows here. This page checks for new offers by itself.</div>`;
+  if (tab === 'orders') v.innerHTML = V.orders.length ? V.orders.map(orderCard).join('') : `<div class="empty"><b>No orders yet</b>Orders you accept show here with the address and the steps to pack and ship.</div>`;
+  if (tab === 'stock') v.innerHTML = stockView();
+  if (tab === 'earn') v.innerHTML = earnView();
+  if (fid) { const el = document.getElementById(fid); if (el) { el.focus(); try { if (sel != null) el.setSelectionRange(sel, sel); } catch {} } }
+}
+
+let tt; function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => { el.hidden = true; }, 3200); }
+
+// ---------- Events ----------
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.dataset.tab) { tab = b.dataset.tab; try { localStorage.setItem('888-shop-tab', tab); } catch {} render(); scrollTo(0, 0); return; }
+  if (b.id === 'online') { await act({ act: 'online', active: !V.shop.active }, V.shop.active ? 'Paused: no new offers will come' : 'You are taking orders'); return; }
+  if (b.dataset.step) {
+    const [sku, d] = b.dataset.step.split('|'); const item = V.stock.find((i) => i.sku === sku);
+    const q = Math.max(0, item.qty + Number(d)); item.qty = q; b.parentElement.querySelector('input').value = q; queueStock(sku, q); return;
+  }
+  const id = b.dataset.id, a = b.dataset.act;
+  if (a === 'accept') { const r = await act({ act: 'accept', offerId: id, commit: !!document.querySelector(`[data-promise="${id}"]`)?.checked }, 'It\'s yours. Open "My orders".'); if (r?.ok) { tab = 'orders'; render(); } }
+  if (a === 'cant') await act({ act: 'decline', offerId: id, reason: 'shortage' }, 'Declined. 888 will find another shop.');
+  if (a === 'busy') await act({ act: 'decline', offerId: id, reason: 'busy' }, 'Declined. 888 will find another shop.');
+  if (a === 'sourced') await act({ act: 'sourced', orderId: id }, 'Great. Now pack it.');
+  if (a === 'cantsource') { if (!ui[id].confirmCant) { ui[id].confirmCant = true; render(); return; } await act({ act: 'cantsource', orderId: id }, 'Given to another shop. No strike.'); }
+  if (a === 'packed') { ui[id].packed = true; render(); toast('Packed. Now hand it to the courier.'); }
+  if (a === 'ship') { const u = ui[id]; await act({ act: 'ship', orderId: id, tracking: u.tracking, courier: u.courier || 'Lalamove' }, 'Shipped. Thank you!'); }
+  if (a === 'delivered') { if (!ui[id].confirmDeliv) { ui[id].confirmDeliv = true; render(); return; } await act({ act: 'delivered', orderId: id }, 'Marked as delivered.'); }
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.dataset.promise) document.querySelector(`[data-act="accept"][data-id="${t.dataset.promise}"]`).disabled = !t.checked;
+  if (t.dataset.tick) { const [id, sku] = t.dataset.tick.split('|'); ui[id].ticks[sku] = t.checked; const o = V.orders.find((x) => x.id === id); document.querySelector(`[data-act="packed"][data-id="${id}"]`).disabled = !o.items.every((i) => ui[id].ticks[i.sku]); }
+  if (t.dataset.courier) ui[t.dataset.courier].courier = t.value;
+  if (t.dataset.qty) { const q = Math.max(0, Math.floor(Number(t.value) || 0)); t.value = q; V.stock.find((i) => i.sku === t.dataset.qty).qty = q; queueStock(t.dataset.qty, q); }
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.dataset.track) { ui[t.dataset.track].tracking = t.value.trim(); document.querySelector(`[data-act="ship"][data-id="${t.dataset.track}"]`).disabled = !t.value.trim(); }
+  if (t.id === 'stock-q') { stockQ = t.value; const box = document.getElementById('stock-list'); const tmp = document.createElement('div'); tmp.innerHTML = stockView(); box.innerHTML = tmp.querySelector('#stock-list').innerHTML; }
+});
+
+// Stock changes are saved a moment after the last tap.
+const pending = new Map(); let stockTimer;
+function queueStock(sku, qty) { pending.set(sku, qty); clearTimeout(stockTimer); stockTimer = setTimeout(flushStock, 700); }
+async function flushStock() {
+  const list = [...pending]; pending.clear();
+  for (const [sku, qty] of list) { try { const r = await call('POST', { act: 'stock', sku, qty }); V = r.view; skew = r.view.now - Date.now(); } catch (e) { toast(e.message); return; } }
+  toast('Stock saved');
+  if (document.activeElement?.id !== 'stock-q') render();
+}
+
+// Countdowns every second; fresh data every 20 seconds (not while typing).
+setInterval(() => { for (const el of document.querySelectorAll('[data-until]')) { const ms = Number(el.dataset.until) - now(); el.textContent = left(ms); el.classList.toggle('hot', ms < 5 * MIN); } }, 1000);
+setInterval(() => { if (!busy && !pending.size && !document.activeElement?.matches('input, select')) load(); }, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+
+if (!TOKEN) document.getElementById('view').innerHTML = '<div class="empty"><b>Open your shop link</b>Use the link 888 sent you by text or chat. It opens your shop here.</div>';
+else load();
+</script>
+</body>
+</html>

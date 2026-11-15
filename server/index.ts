@@ -1,4 +1,4 @@
-// 888 dispatch server (Supabase Edge Function "api").
+// 888 dispatch server (Supabase Edge Function "api"). Deployed with imports pinned to a commit of this repo.
 //   POST /api/shopify          Shopify "order payment" webhook (signed)
 //   POST /api/tick             every minute from pg_cron (x-cron-key)
 //   GET/POST /api/shop         partner shop screen (secret link token)
@@ -45,7 +45,7 @@ type Ctx = { d: any; extra: any; now: number };
 // each other (that is what makes "first shop to accept wins" safe).
 async function withState<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
   for (let attempt = 0; attempt < 6; attempt++) {
-    let { data: row } = await db.from('dispatch_state').select('version, state').eq('id', 1).maybeSingle();
+    const { data: row } = await db.from('dispatch_state').select('version, state').eq('id', 1).maybeSingle();
     if (!row) {
       await db.from('dispatch_state').insert({ id: 1, version: 0, state: freshState() });
       continue;
@@ -74,7 +74,7 @@ async function withState<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
 
 async function readState() {
   const { data } = await db.from('dispatch_state').select('state').eq('id', 1).maybeSingle();
-  if (!data) return withState((c) => c);
+  if (!data) { await withState(() => null); return readState(); }
   const { cfg, seq, packages, shops, orders, offers, events, v, ...extra } = data.state;
   return { d: restore(data.state), extra, now: Date.now() };
 }
@@ -113,7 +113,7 @@ async function onShop(req: Request, url: URL) {
   if (!shopId) return json({ error: 'This shop link is not valid. Ask 888 for a new one.' }, 403);
   if (req.method === 'GET') { const { d, now } = await readState(); if (!d.shops.has(shopId)) return json({ error: 'Shop removed' }, 404); return json(shopView(d, shopId, catalog, now)); }
   const out = await withState(({ d, now }) => {
-    const shop = d.shops.get(shopId); if (!shop) return { ok: false, reason: 'Shop removed' };
+    const shop = d.shops.get(shopId); if (!shop) return { result: { ok: false, reason: 'Shop removed' } };
     const mineOffer = (id: string) => { const of = d.offers.find((o: any) => o.id === id); return of && of.shopId === shopId ? of : null; };
     let r: any = { ok: true };
     switch (body.act) {
@@ -150,7 +150,7 @@ async function onAdmin(req: Request, url: URL) {
   const body = await req.json();
   let link: string | null = null;
   if (body.act === 'addShop' || body.act === 'newLink') link = newToken();
-  const out = await withState(({ d, extra, now }) => {
+  const out: any = await withState(({ d, extra, now }) => {
     let r: any = { ok: true };
     const o = body.orderId ? d.orders.get(body.orderId) : null;
     const s = body.shopId ? d.shops.get(body.shopId) : null;

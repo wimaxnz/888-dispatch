@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>888 Dispatch Admin</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+.wrap { max-width: 1120px }
+.role { font: 700 13px var(--f-head); letter-spacing: .08em; text-transform: uppercase; color: #dcae5e }
+.tabs button { flex: 0 0 auto }
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0 }
+.tile small { display: block; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted) }
+.tile b { display: block; font: 800 24px/1.15 var(--f-head); margin-top: 4px }
+.tile span { font-size: 12.5px; color: var(--muted) }
+.tile.alarm { border-color: var(--bad); background: var(--bad-soft) } .tile.alarm b { color: var(--bad) }
+.attn { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.attn li { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--soft); border-left: 4px solid var(--warn) }
+.attn li.bad { border-left-color: var(--bad) }
+.attn li > div { flex: 1; min-width: 0 } .attn b { display: block } .attn small { color: var(--muted) }
+.two { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start }
+.rows { list-style: none; margin: 0; padding: 0 }
+.rows li { border-top: 1px solid var(--line) } .rows li:first-child { border: 0 }
+.row { width: 100%; display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; text-align: left; padding: 10px 8px; background: none; border: 0; border-radius: 8px; cursor: pointer }
+.row:hover { background: var(--soft) } .row[aria-current="true"] { background: var(--gold-soft) }
+.row .what b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.row .what small, .due { color: var(--muted); font-size: 12.5px }
+.row .right { text-align: right; display: grid; gap: 3px; justify-items: end }
+.due.hot { color: var(--bad); font-weight: 700 }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 14px }
+.kv dt { color: var(--muted) } .kv dd { margin: 0; text-align: right }
+.kv .total { font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px }
+.timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: grid; gap: 8px; font-size: 13.5px }
+.timeline time { color: var(--muted); font-size: 12px; margin-right: 6px }
+.table { overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px }
+th { text-align: left; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap }
+td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle }
+tr:last-child td { border-bottom: 0 } .r { text-align: right }
+.acts { display: flex; flex-wrap: wrap; gap: 6px }
+.form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end }
+.form .field { min-width: 160px; flex: 1 }
+.link { display: flex; gap: 8px; align-items: center; background: var(--ok-soft); border-radius: 10px; padding: 10px 12px; flex-wrap: wrap }
+.link code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 12.5px }
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px }
+.rule { display: grid; grid-template-columns: 1fr 96px; gap: 4px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line) }
+.rule label { font-weight: 600 } .rule small { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px }
+.rule input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 100%; text-align: right }
+.login { max-width: 420px; margin: 40px auto }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr) } .two { grid-template-columns: 1fr } .rules { grid-template-columns: 1fr } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar"><img src="logo.png" alt="888 Grocery"><span class="role">Admin</span><span class="updated" id="updated"></span></div>
+  <nav class="wrap tabs" role="tablist" id="tabs" hidden>
+    <button role="tab" data-tab="overview">Overview</button><button role="tab" data-tab="orders">Orders</button>
+    <button role="tab" data-tab="shops">Shops</button><button role="tab" data-tab="payouts">Payouts</button><button role="tab" data-tab="rules">Rules</button>
+  </nav>
+</header>
+<div class="wrap"><main id="view"></main></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const params = new URLSearchParams(location.hash.slice(1));
+const API = (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(params.get('api') || '') ? params.get('api') : 'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api');
+const SHOP_PAGE = new URL('shop.html', location.href).href.split('#')[0];
+const MIN = 60000, HOUR = 60 * MIN;
+const peso = (n) => (n < 0 ? '−' : '') + '₱' + Math.abs(Math.round(n)).toLocaleString('en-PH');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = new Intl.DateTimeFormat('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const left = (ms) => { const n = ms < 0, a = Math.abs(ms), h = Math.floor(a / HOUR), m = Math.floor((a % HOUR) / MIN); return (n ? '-' : '') + (h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`); };
+const STAGE = { find: 'Finding shop', buy: 'Buying items', pack: 'Packing', way: 'On the way', done: 'Delivered', hub: '888 hub' };
+
+let KEY = null, V = null, tab = 'overview', filter = 'all', sel = null, events = {}, confirmKey = null, newLink = null, busy = false;
+try { KEY = localStorage.getItem('888-admin-key'); } catch {}
+
+async function call(method, body, query = '') {
+  const res = await fetch(`${API}/admin${query}`, { method, headers: { 'content-type': 'application/json', 'x-admin-key': KEY }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({ error: 'No answer from the server. Check your internet.' }));
+  if (res.status === 403) { logout('That admin key is not right.'); throw new Error('Wrong admin key'); }
+  if (!res.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+}
+async function load() { try { V = await call('GET'); render(); } catch (e) { if (KEY) toast(e.message); } }
+async function act(body, okMsg) {
+  if (busy) return; busy = true;
+  try { const r = await call('POST', body); V = r.view; if (r.result?.ok === false) toast(r.result.reason || 'That didn\'t work.'); else if (okMsg) toast(okMsg); render(); return r.result; }
+  catch (e) { toast(e.message); } finally { busy = false; }
+}
+
+function loginView(msg = '') {
+  document.getElementById('tabs').hidden = true;
+  document.getElementById('view').innerHTML = `<form class="card login" id="login">
+    <h2>888 Dispatch admin</h2>
+    <p class="note">Enter your admin key. You'll find it in Supabase: project 888-dispatch → Table Editor → app_secrets → admin_key.</p>
+    ${msg ? `<div class="status bad">${esc(msg)}</div>` : ''}
+    <label class="field">Admin key<input id="key" type="password" autocomplete="current-password" required></label>
+    <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="remember" checked> Remember on this device</label>
+    <button class="btn primary">Open admin</button></form>`;
+}
+function logout(msg) { KEY = null; try { localStorage.removeItem('888-admin-key'); } catch {} loginView(msg); }
+
+// ---------- Derived ----------
+function attention() {
+  const t = V.now, out = [];
+  for (const m of V.manual.filter((m) => m.status === 'todo')) out.push({ bad: true, title: `Shopify order ${m.ref}: handle it yourself`, why: m.reason, manual: m.id });
+  for (const o of V.orders) {
+    if (o.stage === 'hub' && o.status === 'assigned') out.push({ o, bad: o.urgent, title: `${o.id}: the 888 hub must send this`, why: o.urgent ? (o.failedShop ? 'A shop missed the 24-hour deadline.' : 'Sent to the hub by you.') : 'No partner shop took it.' });
+    else if (o.stage === 'find' && t - o.paidAt > HOUR) out.push({ o, title: `${o.id}: no shop yet after ${left(t - o.paidAt)}`, why: `Wave ${o.wave} is out. It goes to the hub at ${V.rules.hubAfterHours} h.` });
+    else if (o.stage === 'buy' && o.sourceBy - t < 2 * HOUR) out.push({ o, title: `${o.id}: ${o.shopName} hasn't confirmed the missing items`, why: `Time is up in ${left(o.sourceBy - t)}.` });
+    else if (o.stage === 'pack' && o.deadline - t < 4 * HOUR) out.push({ o, bad: o.deadline - t < HOUR, title: `${o.id}: ${o.shopName} hasn't shipped yet`, why: `Deadline in ${left(o.deadline - t)}.` });
+  }
+  for (const s of V.shops) if (!s.hub && !s.active && s.strikes >= V.rules.strikesToSuspend) out.push({ shop: s, bad: true, title: `${s.name} is paused after ${s.strikes} strikes`, why: 'No offers go to them until you reinstate them.' });
+  return out.sort((a, b) => (b.bad ? 1 : 0) - (a.bad ? 1 : 0));
+}
+const margin = (o) => o.sale - o.refund - o.cost - (o.ship ?? 0);
+
+// ---------- Views ----------
+function overview() {
+  const att = attention(), os = V.orders, by = (s) => os.filter((o) => o.stage === s).length;
+  const owed = V.shops.reduce((t, s) => t + s.owed, 0);
+  return `<section class="tiles">
+    <div class="tile"><small>Orders</small><b class="num">${os.length}</b><span>${by('done')} delivered</span></div>
+    <div class="tile ${att.length ? 'alarm' : ''}"><small>Needs you</small><b class="num">${att.length}</b><span>${att.filter((a) => a.bad).length} urgent</span></div>
+    <div class="tile"><small>In progress</small><b class="num">${by('find') + by('buy') + by('pack') + by('hub')}</b><span>${by('way')} on the way</span></div>
+    <div class="tile"><small>Sales</small><b class="num">${peso(os.reduce((t, o) => t + o.sale, 0))}</b><span>est. margin ${peso(os.reduce((t, o) => t + margin(o), 0))}</span></div>
+    <div class="tile"><small>Owed to shops</small><b class="num">${peso(owed)}</b><span>${V.shops.filter((s) => !s.hub).length} partner shops</span></div></section>
+  <section class="card"><h2>Needs you</h2>
+    ${att.length ? `<ul class="attn">${att.map((a) => `<li class="${a.bad ? 'bad' : ''}"><div><b>${esc(a.title)}</b><small>${esc(a.why)}</small></div>
+      ${a.o ? `<button class="btn small" data-open="${esc(a.o.id)}">Open</button>` : a.manual ? `<button class="btn small" data-act="manualDone" data-id="${esc(a.manual)}">Done</button>` : `<button class="btn small" data-act="reinstate" data-shop="${esc(a.shop.id)}">Reinstate</button>`}</li>`).join('')}</ul>`
+      : `<div class="empty"><b>All clear</b>${os.length ? 'Every order is with a shop and on time.' : 'No orders yet. Paid Shopify orders appear here automatically.'}</div>`}</section>
+  ${V.manual.filter((m) => m.status === 'todo').length ? `<section class="card"><h2>Orders to handle yourself</h2>${V.manual.filter((m) => m.status === 'todo').map((m) => `
+    <div class="to"><b>Shopify ${esc(m.ref)} · ${esc(m.recipient.name)}, ${esc(m.recipient.city)}</b>${esc(m.reason)}<br>${m.items.map((i) => `${i.qty} × ${esc(i.title)}`).join(', ')}</div>`).join('')}</section>` : ''}`;
+}
+
+function detail(o) {
+  const ev = events[o.id];
+  const r = o.recipient || {};
+  return `<section class="card" style="position:sticky;top:110px">
+    <div class="head"><div><h3>${esc(o.id)} · ${esc(o.title)}</h3><p class="sub">Paid ${when.format(o.paidAt)} · ship by ${when.format(o.deadline)}</p></div><span class="pill p-${o.stage}">${STAGE[o.stage]}</span></div>
+    <div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}, ${esc(r.province)}<br><span class="note">Buyer in ${esc(o.buyer?.country || '?')}${o.locatedBy && o.locatedBy !== 'shopify' ? ` · placed on the map by ${o.locatedBy} name` : ''}</span></div>
+    <dl class="kv num"><dt>Sale</dt><dd>${peso(o.sale)}</dd>${o.refund ? `<dt>Refunded</dt><dd>−${peso(o.refund)}</dd>` : ''}
+      <dt>${o.stage === 'hub' ? 'Goods (hub)' : 'Shop payout'}</dt><dd>−${peso(o.cost)}</dd><dt>Shipping (est.)</dt><dd>${o.ship == null ? 'not known' : '−' + peso(o.ship)}</dd>
+      <dt class="total">Margin</dt><dd class="total">${peso(margin(o))}</dd></dl>
+    ${o.dropped.length ? `<p class="note">Removed: ${o.dropped.map(esc).join(', ')}. Refund ${peso(o.refund)} in Shopify.</p>` : ''}
+    <div class="acts">
+      ${['find', 'buy', 'pack'].includes(o.stage) ? `<button class="btn small danger" data-act="tohub" data-id="${esc(o.id)}">${confirmKey === 'hub' + o.id ? 'Tap again: send to hub' : 'Send to 888 hub'}</button>` : ''}
+      ${o.stage === 'hub' && o.status === 'assigned' ? `<button class="btn small primary" data-act="hubship" data-id="${esc(o.id)}">Hub: mark shipped</button>` : ''}
+      ${o.status === 'shipped' ? `<button class="btn small" data-act="deliver" data-id="${esc(o.id)}">Mark delivered</button>` : ''}
+    </div>
+    <h4>What happened</h4>
+    ${ev ? `<ol class="timeline">${ev.map((e) => `<li><time class="num">${when.format(new Date(e.at))}</time>${esc(say(e))}</li>`).join('')}</ol>` : '<p class="note">Loading…</p>'}
+  </section>`;
+}
+const shopName = (id) => V.shops.find((s) => s.id === id)?.name ?? id;
+function say(e) {
+  const d = e.data || {};
+  return ({ order_paid: 'Paid in Shopify', offer_sent: `Offer to ${shopName(d.shop)} (wave ${d.wave}, ${d.km} km${d.missing?.length ? `, short ${d.missing.length}` : ''})`,
+    declined: `${shopName(d.shop)} declined (${d.reason === 'shortage' ? "can't get items" : 'busy'})`, offer_expired: `${shopName(d.shop)} didn't answer`,
+    accepted: `${shopName(d.shop)} accepted`, accepted_partial: `${shopName(d.shop)} accepted, buying in ${d.missing?.join(', ')}`,
+    sourced: `${shopName(d.shop)} has all items`, cant_source: `${shopName(d.shop)} couldn't get the items`, sourcing_missed: `${shopName(d.shop)} didn't confirm items: strike`,
+    item_dropped: `Removed ${d.item}; refund ${peso(d.refund)}`, customer_notified: 'Buyer to be told about the missing item', shipped: `Shipped · ${d.tracking}`,
+    payout_payable: `Delivered · ${peso(d.amount)} owed to ${shopName(d.shop)}`, deadline_missed: `${shopName(d.shop)} missed the deadline: not paid, strike`,
+    to_hub: `To the 888 hub (${d.reason})`, hub_urgent: `To the 888 hub, urgent (${d.reason})`, hub_needs_stock: 'Hub stock not tracked yet' })[e.type] ?? e.type;
+}
+
+function ordersView() {
+  const F = { all: ['All', () => true], find: ['Finding shop', (o) => o.stage === 'find'], work: ['With a shop', (o) => ['buy', 'pack'].includes(o.stage)],
+    hub: ['888 hub', (o) => o.stage === 'hub'], way: ['On the way', (o) => o.stage === 'way'], done: ['Delivered', (o) => o.stage === 'done'] };
+  const list = V.orders.filter(F[filter][1]);
+  const o = V.orders.find((x) => x.id === sel) || list[0];
+  if (o && !events[o.id]) loadEvents(o.id);
+  return `<div class="two"><section class="card"><h2>Orders</h2>
+    <div class="acts">${Object.entries(F).map(([k, [l, f]]) => `<button class="btn small" data-filter="${k}" aria-pressed="${filter === k}" style="${filter === k ? 'background:var(--ink);color:var(--bg)' : ''}">${l} ${V.orders.filter(f).length}</button>`).join('')}</div>
+    ${list.length ? `<ul class="rows">${list.map((x) => `<li><button class="row" data-open="${esc(x.id)}" aria-current="${o && x.id === o.id}">
+      <b class="num">${esc(x.id)}</b><span class="what"><b>${esc(x.title)}</b><small>${esc(x.area)} · ${esc(x.shopName || 'no shop yet')}</small></span>
+      <span class="right"><span class="pill p-${x.stage}">${STAGE[x.stage]}${x.urgent && x.status === 'assigned' ? ' · urgent' : ''}</span>
+      ${['find', 'buy', 'pack', 'hub'].includes(x.stage) && x.status !== 'shipped' ? `<span class="due num ${x.deadline - V.now < 4 * HOUR ? 'hot' : ''}">ship in ${left(x.deadline - V.now)}</span>` : ''}</span></button></li>`).join('')}</ul>`
+      : '<div class="empty">No orders here.</div>'}</section>
+    ${o ? detail(o) : '<section class="card"><div class="empty">Paid Shopify orders appear here.</div></section>'}</div>`;
+}
+
+function shopsView() {
+  const shops = V.shops.filter((s) => !s.hub);
+  return `${newLink ? `<section class="card"><h2>Shop link for ${esc(newLink.name)}</h2>
+      <p class="note">Send this link to the shop owner by text or chat. It's their key to the shop screen, so share it only with them. It is shown once; you can make a new one any time (the old one stops working).</p>
+      <div class="link"><code id="link">${esc(newLink.url)}</code><button class="btn small" data-copy>Copy</button></div></section>` : ''}
+    <section class="card"><h2>Partner shops</h2>
+    ${shops.length ? `<div class="table"><table><thead><tr><th>Shop</th><th>Status</th><th>Strikes</th><th>Accepts</th><th class="r">Open</th><th class="r">Owed</th><th></th></tr></thead><tbody>
+      ${shops.map((s) => `<tr><td><b>${esc(s.name)}</b><br><span class="note">${esc(s.city)}${s.phone ? ' · ' + esc(s.phone) : ''} · ${s.stocked} items stocked</span></td>
+        <td><span class="pill ${s.active ? 'p-done' : 'p-bad'}">${s.active ? 'Taking orders' : 'Paused'}</span></td><td class="num">${s.strikes}</td>
+        <td class="num">${s.answered ? Math.round(100 * s.accepted / s.answered) + '%' : '–'} <span class="note">of ${s.answered}</span></td>
+        <td class="r num">${s.open}</td><td class="r num">${s.owed ? peso(s.owed) : '–'}</td>
+        <td class="r"><div class="acts" style="justify-content:flex-end">
+          <button class="btn small" data-act="newLink" data-shop="${esc(s.id)}">${confirmKey === 'link' + s.id ? 'Tap again: new link' : 'New link'}</button>
+          ${s.strikes ? `<button class="btn small" data-act="clearStrikes" data-shop="${esc(s.id)}">Clear strikes</button>` : ''}
+          ${s.active ? `<button class="btn small" data-act="pauseShop" data-shop="${esc(s.id)}">Pause</button>` : `<button class="btn small primary" data-act="reinstate" data-shop="${esc(s.id)}">Reinstate</button>`}
+        </div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><b>No partner shops yet</b>Add your first shop below.</div>'}</section>
+    <section class="card"><h2>Add a partner shop</h2>
+      <form class="form" id="addshop">
+        <label class="field">Shop name<input id="s-name" required maxlength="60" placeholder="e.g. Pardo Grocery"></label>
+        <label class="field">City or town<input id="s-city" required placeholder="e.g. Talisay City"></label>
+        <label class="field">Province<input id="s-prov" required placeholder="e.g. Cebu"></label>
+        <label class="field">Mobile<input id="s-phone" inputmode="tel" placeholder="0917 123 4567"></label>
+        <button class="btn primary">Add shop</button></form>
+      <p class="note">The shop is placed on the map by its city. They then fill in their stock from their own screen.</p></section>`;
+}
+
+function payoutsView() {
+  const owed = V.shops.filter((s) => s.owed);
+  return `<section class="card"><h2>To pay</h2>
+    ${owed.length ? `<div class="table"><table><thead><tr><th>Shop</th><th class="r">Orders</th><th class="r">Amount</th><th></th></tr></thead><tbody>
+      ${owed.map((s) => `<tr><td><b>${esc(s.name)}</b><br><span class="note">${esc(s.city)}${s.phone ? ' · ' + esc(s.phone) : ''}</span></td><td class="r num">${s.owedOrders}</td><td class="r num"><b>${peso(s.owed)}</b></td>
+      <td class="r"><button class="btn small primary" data-act="pay" data-shop="${esc(s.id)}">${confirmKey === 'pay' + s.id ? 'Tap again to confirm' : 'Mark as paid'}</button></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nothing owed right now.</div>'}
+    <p class="note">"Mark as paid" records the payment here. Send the money from your bank or GCash first.</p></section>
+    ${V.payments.length ? `<section class="card"><h2>Payment history</h2><div class="table"><table><thead><tr><th>When</th><th>Shop</th><th class="r">Orders</th><th class="r">Amount</th></tr></thead><tbody>
+      ${[...V.payments].reverse().map((p) => `<tr><td>${when.format(p.at)}</td><td>${esc(shopName(p.shop))}</td><td class="r num">${p.orders}</td><td class="r num">${peso(p.amount)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+}
+
+const RULES = [
+  ['rings.localKm', 'Local ring (km)', 'Shops this close are asked first.'], ['rings.nearbyKm', 'Nearby ring (km)', 'Asked next, before the rest of the island.'],
+  ['waveSize', 'Shops per wave', 'First to accept wins.'], ['offerMinutes', 'Minutes to answer', 'Then the next wave goes out.'],
+  ['hubAfterHours', 'Send to hub after (hours)', 'If no shop has accepted by then.'], ['shipWithinHours', 'Ship within (hours)', 'From payment, or the shop is not paid.'],
+  ['strikesToSuspend', 'Strikes before pause', 'A shop is paused at this many.'], ['partial.maxMissingItems', 'Short items allowed', 'A shop short of up to this many can still take it.'],
+  ['partial.maxMissingValuePct', 'Short value allowed (%)', 'Of the order value.'], ['partial.sourceWithinHours', 'Hours to buy in items', 'For shops that were short.'],
+  ['partial.shortageDeclinesToDrop', 'Remove item after (shops)', 'When this many shops can\'t get the same item.'],
+];
+const get = (p) => p.split('.').reduce((o, k) => o[k], V.rules);
+function rulesView() {
+  return `<section class="card"><h2>Shop pay</h2><form class="form" id="payout">
+      <label class="field">Shop's share of the goods price (%)<input id="p-share" type="number" min="1" max="99" value="${Math.round((V.payout?.share ?? 0.7) * 100)}"></label>
+      <label class="field">Packing fee per order (₱)<input id="p-fee" type="number" min="0" max="4999" value="${V.payout?.packingFee ?? 50}"></label>
+      <button class="btn primary">Save shop pay</button></form>
+      <p class="note">Applies to new orders. Example: a ₱1,400 order pays the shop ${peso(1400 * (V.payout?.share ?? 0.7) + (V.payout?.packingFee ?? 50))}.</p></section>
+    <section class="card"><h2>Dispatch rules</h2><div class="rules">${RULES.map(([k, l, h]) => `<div class="rule"><label for="r-${k}">${l}</label>
+      <input id="r-${k}" data-rule="${k}" type="number" min="0" max="1000" value="${get(k)}"><small>${h}</small></div>`).join('')}</div>
+    <p class="note">Changes apply to new offers straight away.</p></section>
+    <section class="card"><h2>This device</h2><button class="btn" data-logout>Log out of admin on this device</button></section>`;
+}
+
+function render() {
+  if (!V) return;
+  const att = attention().length;
+  document.getElementById('tabs').hidden = false;
+  for (const b of document.querySelectorAll('[data-tab]')) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); if (b.dataset.tab === 'overview') b.innerHTML = `Overview${att ? `<span class="badge num">${att}</span>` : ''}`; }
+  document.getElementById('view').innerHTML = { overview, orders: ordersView, shops: shopsView, payouts: payoutsView, rules: rulesView }[tab]();
+  document.getElementById('updated').textContent = `Updated ${when.format(Date.now())}`;
+}
+async function loadEvents(id) { try { const r = await call('GET', null, `?events=${encodeURIComponent(id)}`); events[id] = r.events; if (tab === 'orders') render(); } catch {} }
+let tt; function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => { el.hidden = true; }, 3400); }
+
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button'); if (!b || (b.type === 'submit' && b.form)) return;
+  const twice = (k) => { if (confirmKey === k) { confirmKey = null; return true; } confirmKey = k; render(); return false; };
+  if (b.dataset.tab) { tab = b.dataset.tab; confirmKey = null; render(); return; }
+  if (b.dataset.filter) { filter = b.dataset.filter; sel = null; render(); return; }
+  if (b.dataset.open) { sel = b.dataset.open; tab = 'orders'; delete events[sel]; render(); return; }
+  if (b.hasAttribute('data-logout')) { logout(); return; }
+  if (b.hasAttribute('data-copy')) { const t = document.getElementById('link').textContent; try { await navigator.clipboard.writeText(t); toast('Link copied'); } catch { getSelection().selectAllChildren(document.getElementById('link')); toast('Select and copy the link'); } return; }
+  const a = b.dataset.act, id = b.dataset.id, shop = b.dataset.shop;
+  if (a === 'tohub') { if (!twice('hub' + id)) return; await act({ act: 'tohub', orderId: id }, `${id} is now with the 888 hub`); delete events[id]; }
+  if (a === 'hubship') await act({ act: 'hubship', orderId: id, tracking: 'HUB' }, 'Marked as shipped from the hub');
+  if (a === 'deliver') await act({ act: 'deliver', orderId: id }, 'Marked as delivered');
+  if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');
+  if (a === 'pauseShop') await act({ act: 'pauseShop', shopId: shop }, 'Shop paused');
+  if (a === 'reinstate') await act({ act: 'reinstate', shopId: shop }, 'Shop reinstated, strikes cleared');
+  if (a === 'clearStrikes') await act({ act: 'clearStrikes', shopId: shop }, 'Strikes cleared');
+  if (a === 'pay') { if (!twice('pay' + shop)) return; const r = await act({ act: 'pay', shopId: shop }); if (r?.ok) toast(`Recorded ${peso(r.amount)} paid`); }
+  if (a === 'newLink') { if (!twice('link' + shop)) return; const r = await act({ act: 'newLink', shopId: shop }); if (r?.link) { newLink = { name: shopName(shop), url: `${SHOP_PAGE}#t=${r.link}` }; render(); } }
+});
+document.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  if (f.id === 'login') { KEY = document.getElementById('key').value.trim(); if (document.getElementById('remember').checked) try { localStorage.setItem('888-admin-key', KEY); } catch {} await load(); }
+  if (f.id === 'addshop') {
+    const v = (id) => document.getElementById(id).value.trim();
+    const r = await act({ act: 'addShop', name: v('s-name'), city: v('s-city'), province: v('s-prov'), phone: v('s-phone') });
+    if (r?.link) { newLink = { name: v('s-name'), url: `${SHOP_PAGE}#t=${r.link}` }; toast('Shop added. Send them the link.'); render(); }
+  }
+  if (f.id === 'payout') await act({ act: 'payoutRule', share: Number(document.getElementById('p-share').value) / 100, packingFee: Number(document.getElementById('p-fee').value) }, 'Shop pay saved');
+});
+document.addEventListener('change', async (ev) => { const t = ev.target; if (t.dataset.rule) await act({ act: 'rule', path: t.dataset.rule, value: Number(t.value) }, 'Rule saved'); });
+
+setInterval(() => { if (KEY && !busy && !document.activeElement?.matches('input, select')) load(); }, 20000);
+if (KEY) { document.getElementById('view').innerHTML = '<div class="empty"><b>Loading…</b></div>'; load(); } else loginView();
+</script>
+</body>
+</html>
