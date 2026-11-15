@@ -1,0 +1,6 @@
+node_modules/
+shop/888-shop.html
+shop/888-subscribe.html
+shop/888-admin.html
+.admin-key*
+*.local

@@ -1,0 +1,537 @@
+<title>888 Shop App</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one phone-width column; brown 888 header, tabs, cards that each hold one job (an offer or an order). */
+:root {
+  --bg: #f5f2ee; --surface: #ffffff; --ink: #2a1c13; --muted: #76675b; --line: #e6ddd3;
+  --brand: #4a2e1c; --brand-ink: #fdf8f2; --gold: #a8741f; --gold-soft: #f6ead3;
+  --ok: #2c7a4b; --ok-soft: #e3f3e9; --warn: #8a5a00; --warn-soft: #fff3d6; --warn-line: #e7bd5b;
+  --bad: #b3261e; --bad-soft: #fbe6e4; --focus: #bc862c;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-head: "Archivo", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15100c; --surface: #211913; --ink: #f2e9e0; --muted: #b3a393; --line: #3a2e25;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --warn-line: #7c5d1d;
+  --bad: #f2948b; --bad-soft: #3b1b18; --focus: #dcae5e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15100c; --surface: #211913; --ink: #f2e9e0; --muted: #b3a393; --line: #3a2e25;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --warn-line: #7c5d1d;
+  --bad: #f2948b; --bad-soft: #3b1b18; --focus: #dcae5e; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 15px/1.45 var(--f-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand) }
+.wrap { max-width: 480px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--f-head); text-wrap: balance; margin: 0 }
+button, input, select { font: inherit; color: inherit }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px }
+.num { font-variant-numeric: tabular-nums }
+
+/* Header */
+.top { background: var(--brand); color: var(--brand-ink); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5 }
+.top .wrap { display: flex; align-items: center; gap: 12px; padding-block: 12px 10px }
+.top img { height: 30px; width: auto; display: block }
+.who { margin-left: auto; text-align: right; min-width: 0 }
+.who b { display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.online { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid rgba(255,255,255,.3); color: var(--brand-ink); border-radius: 999px; padding: 2px 10px 2px 8px; font-size: 12px; cursor: pointer }
+.online i { width: 8px; height: 8px; border-radius: 50%; background: #6fd394 }
+.online[aria-pressed="false"] i { background: #9a8a7c }
+.tabs { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid rgba(255,255,255,.12) }
+.tabs button { background: none; border: 0; color: rgba(253,248,242,.72); padding: 10px 4px 11px; font-weight: 600; font-size: 13.5px; cursor: pointer; border-bottom: 3px solid transparent }
+.tabs button[aria-selected="true"] { color: var(--brand-ink); border-bottom-color: #dcae5e }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #dcae5e; color: #2a1c13; font-size: 11.5px; line-height: 18px; margin-left: 4px }
+
+main { padding-block: 16px 32px; display: grid; gap: 14px }
+.empty { text-align: center; color: var(--muted); padding: 36px 12px; border: 1.5px dashed var(--line); border-radius: 14px }
+.empty b { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px }
+
+/* Cards */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; min-width: 0 }
+.card.new { box-shadow: 0 0 0 2px var(--gold) }
+.head { display: flex; gap: 10px; align-items: flex-start }
+.head > div { min-width: 0; flex: 1 }
+.head h3 { font-size: 19px; line-height: 1.2 }
+.sub { color: var(--muted); font-size: 13.5px; margin: 3px 0 0 }
+.chip { flex: none; font: 700 13px/1 var(--f-head); padding: 7px 9px; border-radius: 8px; background: var(--gold-soft); color: var(--gold) }
+.chip.hot { background: var(--bad-soft); color: var(--bad) }
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 }
+.facts div { background: var(--bg); border-radius: 10px; padding: 8px 10px; min-width: 0 }
+.facts dt { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted) }
+.facts dd { margin: 2px 0 0; font: 700 16px/1.2 var(--f-head) }
+.facts .earn dd { color: var(--ok) }
+
+.warn { background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px }
+.warn strong { color: var(--warn) }
+.warn ul { margin: 0; padding-left: 18px }
+.warn p { margin: 0; font-size: 14px }
+.promise { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border-radius: 10px; padding: 10px 12px; font-weight: 600; cursor: pointer }
+.promise input { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--gold) }
+.race { margin: 0; font-size: 13.5px; color: var(--muted) }
+
+details > summary { cursor: pointer; color: var(--gold); font-weight: 600; font-size: 14px }
+.items { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px }
+.items li { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px }
+.items li:last-child { border-bottom: 0 }
+.items .mark { flex: none; width: 20px; text-align: center; font-weight: 700; color: var(--ok) }
+.items .short .mark { color: var(--bad) }
+.items .q { flex: none; width: 34px; color: var(--muted) }
+.items .n { flex: 1; min-width: 0 }
+.items .gone { color: var(--muted); text-decoration: line-through }
+
+.actions { display: grid; gap: 8px; grid-template-columns: 1fr 1fr }
+.actions .primary { grid-column: 1 / -1 }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 11px; padding: 12px 14px; font-weight: 600; cursor: pointer; min-height: 48px }
+.btn:hover:not(:disabled) { border-color: var(--muted) }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); font-size: 16px }
+:root[data-theme="dark"] .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c } }
+.btn.danger { color: var(--bad) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn.solo { grid-column: 1 / -1 }
+
+/* Orders */
+.steps { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0 }
+.steps li { flex: 1; text-align: center; font-size: 12px; color: var(--muted); padding-top: 8px; border-top: 4px solid var(--line); min-width: 0 }
+.steps li.done { border-top-color: var(--ok); color: var(--ok) }
+.steps li.now { border-top-color: var(--gold); color: var(--ink); font-weight: 700 }
+.to { background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 14px }
+.to b { display: block }
+.deadline { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; align-items: baseline; flex-wrap: wrap }
+.deadline b { font: 700 18px/1 var(--f-head) }
+.stage { display: grid; gap: 10px }
+.stage h4 { margin: 0; font: 700 16px/1.25 var(--f-head) }
+.stage p { margin: 0; font-size: 14px }
+.packlist label { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px }
+.packlist input { width: 20px; height: 20px; flex: none; accent-color: var(--ok) }
+.field { display: grid; gap: 4px; font-size: 13.5px; font-weight: 600 }
+.field input, .field select { border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: var(--surface); font-weight: 400; font-size: 15px; width: 100% }
+.photo img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px; display: block }
+.status { border-radius: 12px; padding: 12px 14px; font-size: 14px }
+.status.ok { background: var(--ok-soft); color: var(--ok) }
+.status.bad { background: var(--bad-soft); color: var(--bad) }
+.status.info { background: var(--gold-soft); color: var(--gold) }
+.status b { display: block; font-size: 15px }
+.note { font-size: 13px; color: var(--muted); margin: 0 }
+
+/* Earnings */
+.total { text-align: center; padding: 20px 16px }
+.total small { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-size: 12px }
+.total strong { display: block; font: 800 36px/1.1 var(--f-head); color: var(--ok); margin-top: 4px }
+.rows { list-style: none; margin: 0; padding: 0 }
+.rows li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px }
+.rows li:last-child { border: 0 }
+.strikes { display: flex; gap: 6px; align-items: center; font-size: 14px }
+.strikes i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line) }
+.strikes i.on { background: var(--bad); border-color: var(--bad) }
+
+/* Stock */
+.search { border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; width: 100%; background: var(--surface); font-size: 15px }
+.stock li { align-items: center }
+.stock .n small { display: block; color: var(--gold); font-size: 12px }
+.stepper { display: flex; align-items: center; gap: 4px; flex: none }
+.stepper button { width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); font-size: 18px; cursor: pointer }
+.stepper span { width: 34px; text-align: center; font-weight: 700 }
+.stepper.zero span { color: var(--bad) }
+
+/* Demo controls */
+.demo { border: 1.5px dashed var(--muted); border-radius: 14px; padding: 14px; display: grid; gap: 10px; background: transparent }
+.demo h2 { font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline }
+.demo h2 span { font: 500 12px var(--f-body); color: var(--muted) }
+.demo .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.demo .btn { min-height: 42px; padding: 9px 10px; font-size: 13.5px }
+.feed { list-style: none; margin: 0; padding: 0; font-size: 12.5px; color: var(--muted); display: grid; gap: 3px; max-height: 190px; overflow: auto }
+.feed time { color: var(--ink); font-weight: 600; margin-right: 6px }
+.clock { font-size: 12.5px; color: var(--muted) }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 11px; font-weight: 600; font-size: 14px; max-width: calc(100% - 32px); z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.25) }
+@media (prefers-reduced-motion: no-preference) { .card.new { animation: pop .35s ease-out } @keyframes pop { from { transform: translateY(6px); opacity: .6 } } }
+@media (max-width: 360px) { .facts { grid-template-columns: 1fr 1fr } .actions { grid-template-columns: 1fr } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <img id="logo" alt="888 Grocery">
+    <div class="who">
+      <b id="shopName">Talisay Family Store</b>
+      <button class="online" id="online" aria-pressed="true"><i></i><span>Taking orders</span></button>
+    </div>
+  </div>
+  <nav class="wrap tabs" role="tablist">
+    <button role="tab" id="tab-offers" aria-selected="true" data-tab="offers">Offers</button>
+    <button role="tab" id="tab-orders" aria-selected="false" data-tab="orders">My orders</button>
+    <button role="tab" id="tab-earn" aria-selected="false" data-tab="earn">Earnings</button>
+    <button role="tab" id="tab-stock" aria-selected="false" data-tab="stock">Stock</button>
+  </nav>
+</header>
+
+<div class="wrap">
+  <main id="view"></main>
+  <section class="demo" aria-label="Demo controls">
+    <h2>Try it out <span>Demo controls. Not in the real app.</span></h2>
+    <div class="grid">
+      <button class="btn" data-demo="full">New order (have all)</button>
+      <button class="btn" data-demo="short">New order (1 item short)</button>
+      <button class="btn" data-demo="big">Big order (2 × Prosperity)</button>
+      <button class="btn" data-demo="rival">Let another shop win</button>
+      <button class="btn" data-demo="h1">Skip ahead 1 hour</button>
+      <button class="btn" data-demo="h8">Skip ahead 8 hours</button>
+      <button class="btn solo" data-demo="reset">Start over</button>
+    </div>
+    <p class="clock" id="clock"></p>
+    <ul class="feed" id="feed"></ul>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/*__ENGINE__*/
+
+const PACKAGES = /*__PACKAGES__*/;
+document.getElementById('logo').src = '/*__LOGO__*/';
+
+const MIN = 60_000, HOUR = 60 * MIN;
+const ME = 'talisay';
+const peso = (n) => '₱' + Math.round(n).toLocaleString('en-PH');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtTime = new Intl.DateTimeFormat('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const fmtClock = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const left = (ms) => {
+  if (ms <= 0) return '0:00';
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}:${String(x).padStart(2, '0')}`;
+};
+
+// Demo recipients (made up).
+const PEOPLE = [
+  { name: 'Rosa Dela Cruz', phone: '0917 555 0142', addr: 'Purok 3, Brgy. Lawaan II, Talisay City, Cebu', area: 'Lawaan II, Talisay' },
+  { name: 'Ernesto Villanueva', phone: '0918 555 0177', addr: '12 Rizal St., Brgy. Poblacion, Talisay City, Cebu', area: 'Poblacion, Talisay' },
+  { name: 'Lourdes Bacalso', phone: '0927 555 0109', addr: 'Sitio Mahayahay, Brgy. Tabunok, Talisay City, Cebu', area: 'Tabunok, Talisay' },
+  { name: 'Mario & Nena Abellana', phone: '0995 555 0123', addr: 'Blk 4 Lot 9, Brgy. Bulacao, Talisay City, Cebu', area: 'Bulacao, Talisay' },
+];
+
+let d, offset, people, ui, mine, tab, seen, seq, lastEvents;
+const now = () => Date.now() + offset;
+
+function stockFor(ids, packs) {
+  const stock = {};
+  for (const p of PACKAGES.filter((x) => ids.includes(x.id)))
+    for (const i of p.items) stock[i.sku] = (stock[i.sku] ?? 0) + i.qty * packs;
+  return stock;
+}
+const skuWhere = (word) => PACKAGES.flatMap((p) => p.items).find((i) => i.name.includes(word)).sku;
+
+function start() {
+  offset = 0; people = {}; ui = {}; mine = new Set(); seen = new Set(); seq = 0; lastEvents = 0;
+  const all = PACKAGES.map((p) => p.id);
+  const myStock = stockFor(all, 3);
+  myStock[skuWhere('Fiesta Ham')] = 0;
+  myStock[skuWhere('Queso')] = 1;
+  myStock[skuWhere('Nescafé 3-in-1 Original, 10')] = 0;
+  d = new Dispatcher({
+    packages: PACKAGES, config,
+    shops: [
+      { id: 'hub', name: '888 Hub (Manila)', hub: true, island: 'Luzon', lat: 14.5995, lng: 120.9842, stock: stockFor(all, 50) },
+      { id: ME, name: 'Talisay Family Store', island: 'Cebu', lat: 10.2447, lng: 123.8494, stock: myStock },
+      { id: 'minglanilla', name: 'Minglanilla Grocery', island: 'Cebu', lat: 10.2440, lng: 123.7960, stock: stockFor(all, 5) },
+    ],
+  });
+  newOrder('888-PROSPERITY', 2);
+  tab = 'offers';
+  render();
+}
+
+function newOrder(packageId, qty = 1) {
+  const id = `888-${1040 + ++seq}`;
+  const who = PEOPLE[(seq - 1) % PEOPLE.length];
+  people[id] = who;
+  const jitter = () => (Math.random() - 0.5) * 0.01;
+  d.placeOrder({ id, packageId, qty, address: { lat: 10.2447 + jitter(), lng: 123.8494 + jitter(), island: 'Cebu' }, paidAt: now() });
+  return id;
+}
+
+// ---------- Views ----------
+const myOffers = () => d.offers.filter((o) => o.shopId === ME && o.status === 'pending');
+const myOrders = () => [...mine].map((id) => d.orders.get(id));
+
+function stageOf(o) {
+  if (o.shopId !== ME) return 'lost';
+  if (o.status === 'delivered') return 'done';
+  if (o.status === 'shipped') return 'onway';
+  if (o.sourcing && !o.sourcing.confirmed) return 'buy';
+  return ui[o.id]?.packed ? 'ship' : 'pack';
+}
+
+function itemsList(order, shop, missing) {
+  const short = new Set(missing.map((m) => m.sku));
+  const rows = d.need(order).map((n) => {
+    const s = short.has(n.sku);
+    const have = Math.max(0, (shop.stock[n.sku] ?? 0) - (shop.reserved[n.sku] ?? 0));
+    return `<li class="${s ? 'short' : ''}"><span class="mark">${s ? '✕' : '✓'}</span><span class="q num">${n.qty}×</span><span class="n">${esc(n.name)}${s ? ` <small>(you have ${have})</small>` : ''}</span></li>`;
+  });
+  for (const x of order.dropped) rows.push(`<li><span class="mark">–</span><span class="q num">${x.qty}×</span><span class="n gone">${esc(x.name)}</span></li>`);
+  return `<ul class="items">${rows.join('')}</ul>`;
+}
+
+function offerCard(of) {
+  const order = d.orders.get(of.orderId), pkg = d.pkg(order), me = d.shops.get(ME);
+  const miss = d.missing(me, order);
+  const others = d.offers.filter((x) => x.orderId === order.id && x.status === 'pending' && x.shopId !== ME).length;
+  const fresh = !seen.has(of.id); seen.add(of.id);
+  const count = d.need(order).reduce((t, n) => t + n.qty, 0);
+  return `<article class="card${fresh ? ' new' : ''}">
+    <div class="head"><div><h3>${esc(pkg.name)}${order.qty > 1 ? ` × ${order.qty}` : ''}</h3>
+      <p class="sub">${esc(people[order.id].area)} · ${of.km} km from you · paid ${peso(pkg.price * order.qty)}</p></div>
+      <span class="chip num" data-until="${of.expiresAt}" title="Time left to answer">${left(of.expiresAt - now())}</span></div>
+    <dl class="facts">
+      <div class="earn"><dt>You earn</dt><dd class="num">${peso(d.payoutFor(order))}</dd></div>
+      <div><dt>Ship by</dt><dd>${fmtTime.format(order.deadline)}</dd></div>
+      <div><dt>Items</dt><dd class="num">${count}</dd></div>
+    </dl>
+    ${miss.length ? `<div class="warn">
+      <strong>You're short of ${miss.length} item${miss.length > 1 ? 's' : ''}</strong>
+      <ul>${miss.map((m) => `<li>${m.qty} × ${esc(m.name)}</li>`).join('')}</ul>
+      <p>You can still take this order if you buy ${miss.length > 1 ? 'them' : 'it'} in within ${config.partial.sourceWithinHours} hours. Your pay already covers the full pack.</p>
+      <label class="promise"><input type="checkbox" id="promise-${of.id}" data-promise="${of.id}"> I will buy in the missing items and ship within 24 hours</label>
+    </div>` : ''}
+    ${order.dropped.length ? `<p class="note">888 removed ${order.dropped.map((x) => esc(x.name)).join(', ')} from this order (no shop could get it; the buyer was refunded).</p>` : ''}
+    <details><summary>See all ${count} items</summary>${itemsList(order, me, miss)}</details>
+    ${others ? `<p class="race">Also offered to ${others} other shop${others > 1 ? 's' : ''}. First to accept gets it.</p>` : ''}
+    <div class="actions">
+      <button class="btn primary" data-act="accept" data-id="${of.id}" ${miss.length ? 'disabled' : ''}>Accept order</button>
+      ${miss.length ? `<button class="btn" data-act="cant" data-id="${of.id}">Can't get items</button>` : ''}
+      <button class="btn${miss.length ? '' : ' solo'}" data-act="busy" data-id="${of.id}">Busy / closed</button>
+    </div>
+  </article>`;
+}
+
+function stepsBar(o, stage) {
+  const steps = [...(o.offer?.missing.length ? [['buy', 'Buy items']] : []), ['pack', 'Pack'], ['ship', 'Ship'], ['onway', 'Delivered']];
+  const order = steps.map((s) => s[0]);
+  const at = stage === 'done' ? order.length : order.indexOf(stage);
+  return `<ol class="steps">${steps.map(([k, label], i) => `<li class="${i < at ? 'done' : i === at ? 'now' : ''}">${label}</li>`).join('')}</ol>`;
+}
+
+function orderCard(o) {
+  const pkg = d.pkg(o), stage = stageOf(o), who = people[o.id], u = (ui[o.id] ??= { ticks: {} });
+  const head = `<div class="head"><div><h3>${esc(pkg.name)}${o.qty > 1 ? ` × ${o.qty}` : ''}</h3><p class="sub">Order ${esc(o.id)} · you earn ${peso(o.offer.payout)}</p></div></div>`;
+  if (stage === 'lost') {
+    const ev = [...d.events].reverse().find((e) => e.order === o.id && e.shop === ME && ['cant_source', 'sourcing_missed', 'deadline_missed'].includes(e.type));
+    const why = !ev ? 'This order was moved to another shop.'
+      : ev.type === 'cant_source' ? 'You said you couldn\'t get the items. The order went to another shop. No strike.'
+      : ev.type === 'sourcing_missed' ? 'You didn\'t confirm the missing items in time. The order went to another shop and you got a strike.'
+      : 'It wasn\'t shipped within 24 hours. It isn\'t paid, you got a strike, and 888 is sending it instead.';
+    return `<article class="card">${head}<div class="status bad"><b>No longer yours</b>${why}</div></article>`;
+  }
+  let body = '';
+  if (stage === 'buy') {
+    const s = o.sourcing;
+    body = `<div class="stage"><h4>1. Buy in the missing items</h4>
+      <ul class="items">${s.missing.map((m) => `<li class="short"><span class="mark">✕</span><span class="q num">${m.qty}×</span><span class="n">${esc(m.name)}</span></li>`).join('')}</ul>
+      <div class="deadline"><span>Confirm within</span><b class="num" data-until="${s.sourceBy}">${left(s.sourceBy - now())}</b></div>
+      <div class="actions">
+        <button class="btn primary" data-act="sourced" data-id="${o.id}">I have all the items now</button>
+        <button class="btn danger solo" data-act="cantsource" data-id="${o.id}">${u.confirmCant ? 'Tap again: give this order to another shop' : 'I can\'t get them'}</button>
+      </div>
+      <p class="note">Saying "I can't get them" before the time is up gives no strike. Saying nothing gives a strike.</p></div>`;
+  } else if (stage === 'pack') {
+    const need = d.need(o);
+    const all = need.every((n) => u.ticks[n.sku]);
+    body = `<div class="stage"><h4>${o.offer.missing.length ? '2' : '1'}. Pack the bag</h4><p>Tick each item as it goes in.</p>
+      <div class="packlist">${need.map((n) => `<label><input type="checkbox" id="tick-${o.id}-${n.sku}" data-tick="${o.id}|${n.sku}" ${u.ticks[n.sku] ? 'checked' : ''}><span class="num">${n.qty}×</span> ${esc(n.name)}</label>`).join('')}</div>
+      <label class="field">Photo of the packed bag (optional for now)<input type="file" accept="image/*" id="photo-${o.id}" data-photo="${o.id}"></label>
+      ${u.photo ? `<div class="photo"><img src="${u.photo}" alt="Packed bag"></div>` : ''}
+      <button class="btn primary" data-act="packed" data-id="${o.id}" ${all ? '' : 'disabled'}>Packed: ready for the courier</button></div>`;
+  } else if (stage === 'ship') {
+    body = `<div class="stage"><h4>${o.offer.missing.length ? '3' : '2'}. Hand it to the courier</h4>
+      <label class="field">Courier<select id="courier-${o.id}" data-courier="${o.id}">${['Lalamove', 'Grab Express', 'J&T Express', 'LBC', 'Own rider'].map((c) => `<option ${u.courier === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+      <label class="field">Tracking or booking number<input id="track-${o.id}" data-track="${o.id}" value="${esc(u.tracking ?? '')}" placeholder="e.g. LLM-58213" autocomplete="off"></label>
+      <button class="btn primary" data-act="ship" data-id="${o.id}" ${u.tracking ? '' : 'disabled'}>Handed to courier</button></div>`;
+  } else if (stage === 'onway') {
+    body = `<div class="status info"><b>On the way</b>${esc(u.courier ?? '')} · ${esc(o.tracking)}. You're paid once it's delivered.</div>
+      <button class="btn" data-act="delivered" data-id="${o.id}">Demo: mark as delivered</button>`;
+  } else {
+    body = o.payout ? `<div class="status ok"><b>Delivered · ${peso(o.payout.amount)} added to your earnings</b>Thank you!</div>`
+      : `<div class="status bad"><b>Delivered</b>Shipped after the 24-hour deadline, so it isn't paid.</div>`;
+  }
+  const live = stage !== 'done' && stage !== 'onway';
+  return `<article class="card">${head}${stepsBar(o, stage)}
+    <div class="to"><b>${esc(who.name)} · ${esc(who.phone)}</b>${esc(who.addr)}</div>
+    ${live ? `<div class="deadline"><span>Ship by ${fmtTime.format(o.deadline)}</span><b class="num" data-until="${o.deadline}">${left(o.deadline - now())}</b></div>` : ''}
+    ${o.dropped.length ? `<p class="note">Removed by 888: ${o.dropped.map((x) => esc(x.name)).join(', ')} (buyer refunded). Don't pack it.</p>` : ''}
+    ${body}</article>`;
+}
+
+function earnView() {
+  const me = d.shops.get(ME);
+  const paid = myOrders().filter((o) => o.payout?.shop === ME);
+  const pending = myOrders().filter((o) => o.shopId === ME && o.status !== 'delivered');
+  return `<section class="card total"><small>Ready to pay out</small><strong class="num">${peso(paid.reduce((t, o) => t + o.payout.amount, 0))}</strong>
+      <p class="note">Paid to your account every week (when payouts are switched on).</p></section>
+    <section class="card"><h3>Delivered</h3>${paid.length ? `<ul class="rows">${paid.map((o) => `<li><span>${esc(d.pkg(o).name)}${o.qty > 1 ? ` × ${o.qty}` : ''}</span><b class="num">${peso(o.payout.amount)}</b></li>`).join('')}</ul>` : '<p class="note">Nothing delivered yet.</p>'}
+      ${pending.length ? `<p class="note">${pending.length} order${pending.length > 1 ? 's' : ''} still in progress, worth ${peso(pending.reduce((t, o) => t + o.offer.payout, 0))}.</p>` : ''}</section>
+    <section class="card"><h3>Your record</h3>
+      <div class="strikes">${[0, 1, 2].map((i) => `<i class="${i < me.strikes ? 'on' : ''}"></i>`).join('')}<span>${me.strikes} of ${config.strikesToSuspend} strikes${me.strikes ? '' : ' · well done'}</span></div>
+      <p class="note">A strike is given for missing the 24-hour deadline or not confirming bought-in items in time. ${config.strikesToSuspend} strikes pauses your shop.</p></section>`;
+}
+
+const ALL_ITEMS = (() => { const m = new Map(); for (const p of PACKAGES) for (const i of p.items) if (!m.has(i.sku)) m.set(i.sku, i.name); return [...m].sort((a, b) => a[1].localeCompare(b[1])); })();
+function stockRows(q = '') {
+  const me = d.shops.get(ME), f = q.trim().toLowerCase();
+  const rows = ALL_ITEMS.filter(([, n]) => !f || n.toLowerCase().includes(f)).map(([sku, n]) => {
+    const qty = me.stock[sku] ?? 0, held = me.reserved[sku] ?? 0;
+    return `<li><span class="n">${esc(n)}${held > 0 ? `<small>${held} on hold for orders</small>` : ''}</span>
+      <span class="stepper${qty ? '' : ' zero'}"><button data-stock="${sku}|-1" aria-label="One less ${esc(n)}">−</button><span class="num">${qty}</span><button data-stock="${sku}|1" aria-label="One more ${esc(n)}">+</button></span></li>`;
+  });
+  return rows.join('') || '<li><span class="n">No item matches.</span></li>';
+}
+function stockView() {
+  return `<section class="card"><h3>What's on your shelf</h3>
+    <p class="note">Keep this right. 888 only sends you orders you can fill, or that you're short of 1–2 items for.</p>
+    <input class="search" id="stock-q" type="search" placeholder="Search items" value="${esc(ui.stockQ ?? '')}">
+    <ul class="items stock" id="stock-list">${stockRows(ui.stockQ)}</ul></section>`;
+}
+
+function render() {
+  const a = document.activeElement, focusId = a?.id, sel = a?.selectionStart;
+  const offers = myOffers(), active = myOrders().filter((o) => ['buy', 'pack', 'ship'].includes(stageOf(o)));
+  for (const b of document.querySelectorAll('.tabs button')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    const n = b.dataset.tab === 'offers' ? offers.length : b.dataset.tab === 'orders' ? active.length : 0;
+    b.innerHTML = b.textContent.replace(/\d+$/, '').trim() + (n ? `<span class="badge num">${n}</span>` : '');
+  }
+  const v = document.getElementById('view');
+  if (tab === 'offers') v.innerHTML = offers.length ? offers.map(offerCard).join('')
+    : `<div class="empty"><b>No new offers right now</b>When a buyer orders near you and you have the items, the offer shows here. Use "Try it out" below to send one.</div>`;
+  if (tab === 'orders') {
+    const list = myOrders().sort((x, y) => (['buy', 'pack', 'ship'].includes(stageOf(y)) - ['buy', 'pack', 'ship'].includes(stageOf(x))) || y.paidAt - x.paidAt);
+    v.innerHTML = list.length ? list.map(orderCard).join('') : `<div class="empty"><b>No orders yet</b>Orders you accept show here, with the address and the steps to pack and ship.</div>`;
+  }
+  if (tab === 'earn') v.innerHTML = earnView();
+  if (tab === 'stock') v.innerHTML = stockView();
+  const me = d.shops.get(ME), btn = document.getElementById('online');
+  btn.setAttribute('aria-pressed', String(me.active));
+  btn.querySelector('span').textContent = me.active ? 'Taking orders' : 'Paused';
+  renderFeed();
+  if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { if (sel != null) el.setSelectionRange(sel, sel); } catch {} } }
+}
+
+const SAY = {
+  order_paid: (e) => `Buyer paid for order ${e.order}`,
+  offer_sent: (e) => `Offer sent to ${d.shops.get(e.shop).name} (${e.km} km${e.missing.length ? `, short ${e.missing.length}` : ''})`,
+  declined: (e) => `${d.shops.get(e.shop).name} declined (${e.reason === 'shortage' ? "can't get items" : 'busy'})`,
+  offer_expired: (e) => `${d.shops.get(e.shop).name} didn't answer in time`,
+  accepted: (e) => `${d.shops.get(e.shop).name} accepted ${e.order}`,
+  accepted_partial: (e) => `${d.shops.get(e.shop).name} accepted ${e.order} and will buy in ${e.missing.length} item(s)`,
+  sourced: (e) => `${d.shops.get(e.shop).name} has all items for ${e.order}`,
+  cant_source: (e) => `${d.shops.get(e.shop).name} couldn't get the items (no strike)`,
+  sourcing_missed: (e) => `${d.shops.get(e.shop).name} didn't confirm items in time: strike`,
+  item_dropped: (e) => `Removed ${e.item} from ${e.order}; buyer refunded ${peso(e.refund)}`,
+  customer_notified: (e) => `Buyer told about the missing item`,
+  shipped: (e) => `${e.order} handed to the courier`,
+  payout_payable: (e) => `${e.order} delivered: ${peso(e.amount)} owed to ${d.shops.get(e.shop).name}`,
+  deadline_missed: (e) => `${d.shops.get(e.shop).name} missed the 24-hour deadline on ${e.order}: not paid, strike`,
+  to_hub: (e) => `${e.order} sent to the 888 hub (${e.reason})`,
+  hub_urgent: (e) => `${e.order} sent to the 888 hub as urgent`,
+  shop_suspended: (e) => `${d.shops.get(e.shop).name} paused after 3 strikes`,
+};
+function renderFeed() {
+  document.getElementById('feed').innerHTML = d.events.slice(-40).reverse().filter((e) => SAY[e.type])
+    .map((e) => `<li><time class="num">${fmtClock.format(e.at)}</time>${esc(SAY[e.type](e))}</li>`).join('');
+  document.getElementById('clock').textContent = `App time: ${fmtTime.format(now())} (Philippines)${offset ? ` · skipped ahead ${Math.round(offset / HOUR)} h` : ''}. What 888 did, newest first:`;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+// ---------- Actions ----------
+document.addEventListener('click', (ev) => {
+  const t = ev.target.closest('button'); if (!t) return;
+  if (t.dataset.tab) { tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
+  if (t.id === 'online') { const me = d.shops.get(ME); me.active = !me.active; toast(me.active ? 'You are taking orders' : 'Paused: no new offers will come'); render(); return; }
+  if (t.dataset.stock) {
+    const [sku, delta] = t.dataset.stock.split('|'); const me = d.shops.get(ME);
+    me.stock[sku] = Math.max(me.reserved[sku] ?? 0, (me.stock[sku] ?? 0) + Number(delta));
+    document.getElementById('stock-list').innerHTML = stockRows(ui.stockQ); return;
+  }
+  const id = t.dataset.id, act = t.dataset.act, n = now();
+  if (act === 'accept') {
+    const of = d.offers.find((o) => o.id === id);
+    const r = d.accept(id, n, { commitToSource: !!document.getElementById(`promise-${id}`)?.checked });
+    if (r.ok) { mine.add(of.orderId); tab = 'orders'; toast(r.missing ? `It's yours. Buy in the items within ${config.partial.sourceWithinHours} hours.` : 'It\'s yours. Pack and ship before the deadline.'); }
+    else toast(r.reason === 'already taken' ? 'Another shop accepted first.' : `Couldn't accept: ${r.reason}.`);
+  }
+  if (act === 'cant') { d.decline(id, n, 'shortage'); toast('Declined. 888 will find another shop.'); }
+  if (act === 'busy') { d.decline(id, n, 'busy'); toast('Declined. 888 will find another shop.'); }
+  if (act === 'sourced') { d.confirmSourced(id, ME, n); toast('Great. Now pack the bag.'); }
+  if (act === 'cantsource') {
+    const u = ui[id];
+    if (!u.confirmCant) { u.confirmCant = true; render(); return; }
+    d.cantSource(id, ME, n); toast('Given to another shop. No strike.');
+  }
+  if (act === 'packed') { ui[id].packed = true; toast('Packed. Now hand it to the courier.'); }
+  if (act === 'ship') {
+    const u = ui[id]; u.courier ??= 'Lalamove';
+    const r = d.ship(id, ME, u.tracking, n);
+    toast(r.ok ? 'Shipped. You\'re paid when it\'s delivered.' : `Couldn't mark as shipped: ${r.reason}.`);
+  }
+  if (act === 'delivered') { d.deliver(id, n); toast('Delivered. Payout added to Earnings.'); }
+  const demo = t.dataset.demo;
+  if (demo) {
+    if (demo === 'reset') { start(); toast('Started over'); return; }
+    if (demo === 'full') { newOrder(['888-MERIENDA', '888-MALINIS', '888-ALMUSAL', '888-LOLOLOLA'][seq % 4]); tab = 'offers'; toast('New offer'); }
+    if (demo === 'short') { newOrder('888-TIPID'); tab = 'offers'; toast('New offer: you\'re short of 1 item'); }
+    if (demo === 'big') { newOrder('888-PROSPERITY', 2); tab = 'offers'; toast("New offer: 2 × Prosperity Box"); }
+    if (demo === 'rival') {
+      const of = d.offers.find((o) => o.shopId === 'minglanilla' && o.status === 'pending');
+      if (of) { d.accept(of.id, n); toast('Minglanilla Grocery accepted first. The offer is gone from your list.'); }
+      else toast('No offer is shared with another shop right now. Try "Big order".');
+    }
+    if (demo === 'h1' || demo === 'h8') { const h = demo === 'h1' ? 1 : 8; for (let i = 0; i < h * 12; i++) { offset += 5 * MIN; d.tick(now()); } toast(`Skipped ahead ${h} hour${h > 1 ? 's' : ''}`); }
+  }
+  render();
+});
+
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.dataset.promise) document.querySelector(`[data-act="accept"][data-id="${t.dataset.promise}"]`).disabled = !t.checked;
+  if (t.dataset.tick) {
+    const [id, sku] = t.dataset.tick.split('|'); ui[id].ticks[sku] = t.checked;
+    const allDone = d.need(d.orders.get(id)).every((n) => ui[id].ticks[n.sku]);
+    document.querySelector(`[data-act="packed"][data-id="${id}"]`).disabled = !allDone;
+  }
+  if (t.dataset.courier) ui[t.dataset.courier].courier = t.value;
+  if (t.dataset.photo && t.files[0]) {
+    const r = new FileReader(); r.onload = () => { ui[t.dataset.photo].photo = r.result; render(); }; r.readAsDataURL(t.files[0]);
+  }
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.dataset.track) { ui[t.dataset.track].tracking = t.value.trim(); document.querySelector(`[data-act="ship"][data-id="${t.dataset.track}"]`).disabled = !t.value.trim(); }
+  if (t.id === 'stock-q') { ui.stockQ = t.value; document.getElementById('stock-list').innerHTML = stockRows(t.value); }
+});
+
+// Clock: the engine checks timers every second; countdowns update in place.
+setInterval(() => {
+  d.tick(now());
+  for (const el of document.querySelectorAll('[data-until]')) {
+    const ms = Number(el.dataset.until) - now();
+    el.textContent = left(ms);
+    el.classList.toggle('hot', ms < 5 * MIN);
+  }
+  if (d.events.length !== lastEvents) {
+    const fresh = d.events.slice(lastEvents); lastEvents = d.events.length;
+    if (fresh.some((e) => e.shop === ME || e.order && mine.has(e.order) || e.type === 'offer_sent')) render(); else renderFeed();
+  }
+}, 1000);
+
+start();
+lastEvents = d.events.length;
+</script>

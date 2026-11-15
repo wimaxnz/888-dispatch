@@ -1,0 +1,588 @@
+<title>888 Dispatch Admin</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: control room. Brown header with tabs; summary tiles first, then "Needs you"; orders are a list + detail panel side by side on desktop, stacked on phones. */
+:root {
+  --bg: #f4f1ed; --surface: #ffffff; --ink: #2a1c13; --muted: #75665a; --line: #e4dbd1; --soft: #f8f5f1;
+  --brand: #4a2e1c; --brand-ink: #fdf8f2; --gold: #a8741f; --gold-soft: #f6ead3;
+  --ok: #2c7a4b; --ok-soft: #e3f3e9; --warn: #8a5a00; --warn-soft: #fff3d6; --bad: #b3261e; --bad-soft: #fbe6e4;
+  --info: #2f5f8a; --info-soft: #e5eef7; --focus: #bc862c;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-head: "Archivo", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #14100c; --surface: #201813; --ink: #f2e9e0; --muted: #b2a292; --line: #3a2e25; --soft: #1a140f;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --bad: #f2948b; --bad-soft: #3b1b18;
+  --info: #8ab8e6; --info-soft: #182736; --focus: #dcae5e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #14100c; --surface: #201813; --ink: #f2e9e0; --muted: #b2a292; --line: #3a2e25; --soft: #1a140f;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --bad: #f2948b; --bad-soft: #3b1b18;
+  --info: #8ab8e6; --info-soft: #182736; --focus: #dcae5e; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 14.5px/1.45 var(--f-body) }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand) }
+.wrap { max-width: 1120px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+h1, h2, h3, h4 { font-family: var(--f-head); margin: 0; text-wrap: balance }
+button, input, select { font: inherit; color: inherit }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px }
+.num { font-variant-numeric: tabular-nums }
+
+.top { background: var(--brand); color: var(--brand-ink); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5 }
+.top .wrap { display: flex; align-items: center; gap: 12px; padding-block: 12px 6px; flex-wrap: wrap }
+.top img { height: 28px; display: block }
+.top .role { font: 700 13px var(--f-head); letter-spacing: .08em; text-transform: uppercase; color: #dcae5e }
+.top .clock { margin-left: auto; font-size: 12.5px; color: rgba(253,248,242,.75) }
+.tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none }
+.tabs button { background: none; border: 0; color: rgba(253,248,242,.72); padding: 10px 12px 11px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent; white-space: nowrap }
+.tabs button[aria-selected="true"] { color: var(--brand-ink); border-bottom-color: #dcae5e }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #f2948b; color: #2a1c13; font-size: 11.5px; line-height: 18px; margin-left: 4px; text-align: center }
+
+main { padding-block: 18px 24px; display: grid; gap: 16px }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px; min-width: 0; align-content: start }
+.panel > header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.panel h2 { font-size: 17px }
+.muted { color: var(--muted) }
+.note { font-size: 13px; color: var(--muted); margin: 0 }
+
+.tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0 }
+.tile small { display: block; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted) }
+.tile b { display: block; font: 800 24px/1.15 var(--f-head); margin-top: 4px }
+.tile span { font-size: 12.5px; color: var(--muted) }
+.tile.alarm { border-color: var(--bad); background: var(--bad-soft) }
+.tile.alarm b { color: var(--bad) }
+.tile.good b { color: var(--ok) }
+
+.pipe { display: flex; height: 30px; border-radius: 8px; overflow: hidden; gap: 2px }
+.pipe div { display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #fff; min-width: 26px }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted) }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px }
+.s-find { background: #8a6a52 } .s-buy { background: #c08a2e } .s-pack { background: #4f7fa8 } .s-way { background: #6d5aa6 } .s-done { background: #3f8f5f } .s-hub { background: #b34a3c }
+
+.attn { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.attn li { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--soft); border-left: 4px solid var(--warn) }
+.attn li.bad { border-left-color: var(--bad) }
+.attn li > div { flex: 1; min-width: 0 }
+.attn b { display: block }
+.attn small { color: var(--muted) }
+.empty { text-align: center; color: var(--muted); padding: 22px; border: 1.5px dashed var(--line); border-radius: 12px }
+
+.two { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start }
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chips button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600; cursor: pointer }
+.chips button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+.rows { list-style: none; margin: 0; padding: 0; display: grid }
+.rows li { border-top: 1px solid var(--line) }
+.rows li:first-child { border-top: 0 }
+.row { width: 100%; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; text-align: left; padding: 10px 8px; background: none; border: 0; border-radius: 8px; cursor: pointer }
+.row:hover { background: var(--soft) }
+.row[aria-current="true"] { background: var(--gold-soft) }
+.row .id { font-weight: 700; font-size: 13px }
+.row .what { min-width: 0 }
+.row .what b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.row .what small { color: var(--muted); font-size: 12.5px }
+.row .right { text-align: right; display: grid; gap: 3px; justify-items: end }
+.pill { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap }
+.p-find { background: var(--soft); color: var(--muted); border: 1px solid var(--line) }
+.p-buy { background: var(--warn-soft); color: var(--warn) }
+.p-pack { background: var(--info-soft); color: var(--info) }
+.p-way { background: var(--info-soft); color: var(--info) }
+.p-done { background: var(--ok-soft); color: var(--ok) }
+.p-hub, .p-bad { background: var(--bad-soft); color: var(--bad) }
+.p-off { background: var(--soft); color: var(--muted) }
+.due { font-size: 12px; color: var(--muted) }
+.due.hot { color: var(--bad); font-weight: 700 }
+
+.detail { position: sticky; top: 110px }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 14px }
+.kv dt { color: var(--muted) }
+.kv dd { margin: 0; text-align: right }
+.kv .total { font-weight: 700; border-top: 1px solid var(--line); padding-top: 6px }
+.timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: grid; gap: 8px; font-size: 13.5px }
+.timeline li { position: relative }
+.timeline li::before { content: ""; position: absolute; left: -20px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--surface); border: 2px solid var(--muted) }
+.timeline li.ok::before { border-color: var(--ok); background: var(--ok) }
+.timeline li.bad::before { border-color: var(--bad); background: var(--bad) }
+.timeline time { color: var(--muted); font-size: 12px; margin-right: 6px }
+.to { background: var(--soft); border-radius: 10px; padding: 10px 12px; font-size: 13.5px }
+
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 12px; font-weight: 600; cursor: pointer; font-size: 13.5px; min-height: 38px; white-space: nowrap }
+.btn:hover:not(:disabled) { border-color: var(--muted) }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink) }
+:root[data-theme="dark"] .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c } }
+.btn.danger { color: var(--bad) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.acts { display: flex; flex-wrap: wrap; gap: 8px }
+
+.table { overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px }
+th { text-align: left; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap }
+td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle }
+tr:last-child td { border-bottom: 0 }
+td.r, th.r { text-align: right }
+.strikes { display: inline-flex; gap: 3px }
+.strikes i { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--line) }
+.strikes i.on { background: var(--bad); border-color: var(--bad) }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; width: 70px; display: inline-block; vertical-align: middle; margin-right: 6px }
+.bar i { display: block; height: 100%; background: var(--ok) }
+
+.form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end }
+.field { display: grid; gap: 4px; font-size: 13px; font-weight: 600 }
+.field input, .field select { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; background: var(--surface); font-weight: 400; min-width: 0 }
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px }
+.rule { display: grid; grid-template-columns: 1fr 96px; gap: 4px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line) }
+.rule label { font-weight: 600 }
+.rule small { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px }
+.rule input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 100%; text-align: right }
+.rule input:invalid { border-color: var(--bad) }
+
+.demo { border: 1.5px dashed var(--muted); border-radius: 14px; padding: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 24px }
+.demo h2 { font-size: 14px; margin-right: 8px }
+.demo span { font-size: 12.5px; color: var(--muted); flex-basis: 100% }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 11px; font-weight: 600; font-size: 14px; max-width: calc(100% - 32px); z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.25) }
+
+@media (max-width: 960px) { .tiles { grid-template-columns: repeat(3, 1fr) } .two { grid-template-columns: 1fr } .detail { position: static } .rules { grid-template-columns: 1fr } }
+@media (max-width: 520px) { .tiles { grid-template-columns: repeat(2, 1fr) } .row { grid-template-columns: minmax(0, 1fr) auto } .row .id { grid-column: 1 / -1 } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <img id="logo" alt="888 Grocery"><span class="role">Admin</span>
+    <span class="clock num" id="clock"></span>
+  </div>
+  <nav class="wrap tabs" role="tablist">
+    <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-tab="orders" aria-selected="false">Orders</button>
+    <button role="tab" data-tab="shops" aria-selected="false">Shops</button>
+    <button role="tab" data-tab="payouts" aria-selected="false">Payouts</button>
+    <button role="tab" data-tab="rules" aria-selected="false">Rules</button>
+  </nav>
+</header>
+
+<div class="wrap">
+  <main id="view"></main>
+  <section class="demo" aria-label="Demo controls">
+    <h2>Try it out</h2>
+    <button class="btn" data-demo="one">New order</button>
+    <button class="btn" data-demo="rush">Rush: 8 orders</button>
+    <button class="btn" data-demo="h1">Skip ahead 1 hour</button>
+    <button class="btn" data-demo="h8">Skip ahead 8 hours</button>
+    <button class="btn" data-demo="reset">Start over</button>
+    <span>Demo controls. Not in the real admin. The shops and orders are made up, and the shops answer by themselves: some are quick, one is slow, one often fails to ship.</span>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/*__ENGINE__*/
+
+const PACKAGES = /*__PACKAGES__*/;
+document.getElementById('logo').src = '/*__LOGO__*/';
+
+const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+const peso = (n) => (n < 0 ? '−' : '') + '₱' + Math.abs(Math.round(n)).toLocaleString('en-PH');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const tf = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const df = new Intl.DateTimeFormat('en-PH', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
+const pkgOf = (id) => PACKAGES.find((p) => p.id === id);
+const left = (ms) => { const neg = ms < 0, a = Math.abs(ms), h = Math.floor(a / HOUR), m = Math.floor((a % HOUR) / MIN); return (neg ? '-' : '') + (h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`); };
+
+const CITIES = {
+  'Cebu City': [10.3157, 123.8854, 'Cebu'], 'Talisay City': [10.2447, 123.8494, 'Cebu'], 'Mandaue City': [10.3236, 123.9223, 'Cebu'],
+  'Lapu-Lapu City': [10.3103, 123.9494, 'Cebu'], 'Danao City': [10.52, 124.027, 'Cebu'], 'Manila': [14.5995, 120.9842, 'Luzon'],
+  'Quezon City': [14.676, 121.0437, 'Luzon'], 'Makati': [14.5547, 121.0244, 'Luzon'], 'Iloilo City': [10.7202, 122.5621, 'Panay'], 'Davao City': [7.0731, 125.6128, 'Mindanao'],
+};
+const NAMES = ['Rosa Dela Cruz', 'Ernesto Villanueva', 'Lourdes Bacalso', 'Mario Abellana', 'Ana Reyes', 'Jun Santos', 'Carmela Ong', 'Pedro Lim', 'Nena Garcia', 'Josefina Uy', 'Ramon Tan', 'Gloria Mendoza'];
+
+// Seeded random numbers so the demo day plays out the same each time.
+let seed = 888;
+const rnd = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const pick = (a) => a[Math.floor(rnd() * a.length)];
+
+const DEFAULTS = JSON.stringify(config);
+let d, offset, tab, filter, selected, info, bot, paidOut, seq, lastEv, confirmKey;
+const now = () => Date.now() + offset;
+const shopName = (id) => d.shops.get(id)?.name ?? id;
+
+function fullStock(n) { const s = {}; for (const p of PACKAGES) for (const i of p.items) s[i.sku] = (s[i.sku] ?? 0) + i.qty * n; return s; }
+const skuWhere = (w) => PACKAGES.flatMap((p) => p.items).find((i) => i.name.includes(w)).sku;
+
+// How each demo shop behaves: minutes to answer, chance to decline, chance to fail to ship.
+const BEHAVIOUR = {
+  colon: { answer: 4, decline: 0.1, flake: 0 }, talisay: { answer: 6, decline: 0.1, flake: 0 },
+  mandaue: { answer: 20, decline: 0.45, flake: 0 }, lapulapu: { answer: 3, decline: 0, flake: 0.6 },
+  danao: { answer: 10, decline: 0.2, flake: 0 }, qc: { answer: 5, decline: 0.1, flake: 0 },
+  makati: { answer: 8, decline: 0.25, flake: 0 }, jaro: { answer: 7, decline: 0.15, flake: 0 }, bajada: { answer: 9, decline: 0.2, flake: 0 },
+};
+
+function world() {
+  const S = (id, name, city, stock) => { const [lat, lng, island] = CITIES[city]; return { id, name, city, island, lat: lat + 0.004, lng: lng - 0.003, stock, rating: 4.6 }; };
+  const talisay = fullStock(6); talisay[skuWhere('Fiesta Ham')] = 0; talisay[skuWhere('Nescafé 3-in-1 Original, 10')] = 0;
+  const mandaue = fullStock(4); mandaue[skuWhere('Ensure')] = 0;
+  return [
+    { ...S('hub', '888 Hub', 'Manila', fullStock(60)), hub: true },
+    S('colon', 'Colon St Grocery', 'Cebu City', fullStock(8)),
+    S('talisay', 'Talisay Family Store', 'Talisay City', talisay),
+    S('mandaue', 'Mandaue Sari-Sari Plus', 'Mandaue City', mandaue),
+    S('lapulapu', 'Lapu-Lapu Grocery', 'Lapu-Lapu City', fullStock(6)),
+    S('danao', 'Danao Town Store', 'Danao City', fullStock(5)),
+    S('qc', 'Quezon City Grocer', 'Quezon City', fullStock(10)),
+    S('makati', 'Makati Corner Mart', 'Makati', fullStock(6)),
+    S('jaro', 'Jaro Mini Mart', 'Iloilo City', fullStock(6)),
+    S('bajada', 'Bajada Grocery', 'Davao City', fullStock(6)),
+  ];
+}
+
+function start() {
+  const def = JSON.parse(DEFAULTS); for (const k of Object.keys(def)) config[k] = def[k];
+  seed = 888; offset = 0; info = {}; bot = {}; paidOut = []; seq = 0; filter = 'all'; selected = null; confirmKey = null;
+  d = new Dispatcher({ packages: PACKAGES, shops: world(), config });
+  const t0 = now() - 30 * HOUR;
+  const times = Array.from({ length: 24 }, () => t0 + rnd() * 29.5 * HOUR).sort((a, b) => a - b);
+  let i = 0;
+  for (let t = t0; t <= now(); t += 5 * MIN) {
+    while (i < times.length && times[i] <= t) { newOrder(t); i++; }
+    if (t >= now() - 22 * HOUR && !info.flaky) { info.flaky = true; const fid = newOrder(t, 'Lapu-Lapu City'); info[fid].flake = true; }
+    step(t);
+  }
+  lastEv = d.events.length;
+  tab = 'overview';
+  render();
+}
+
+function newOrder(t, force) {
+  const city = force ?? (rnd() < 0.62 ? pick(['Cebu City', 'Talisay City', 'Mandaue City', 'Lapu-Lapu City', 'Danao City']) : pick(['Manila', 'Quezon City', 'Makati', 'Iloilo City', 'Davao City']));
+  const [lat, lng, island] = CITIES[city];
+  const p = rnd() < 0.15 ? '888-PROSPERITY' : pick(PACKAGES.filter((x) => x.id !== '888-PROSPERITY')).id;
+  const id = `888-${1101 + seq++}`;
+  info[id] = { name: pick(NAMES), city, buyer: pick(['Auckland, NZ', 'Sydney, AU', 'Doha, QA', 'Dubai, AE', 'Tokyo, JP', 'Seoul, KR', 'Toronto, CA']) };
+  d.placeOrder({ id, packageId: p, qty: rnd() < 0.2 ? 2 : 1, address: { lat: lat + (rnd() - 0.5) * 0.03, lng: lng + (rnd() - 0.5) * 0.03, island }, paidAt: t });
+  return id;
+}
+
+function step(t) { d.tick(t); bots(t); }
+function run(from, to) { for (let t = from; t <= to; t += 5 * MIN) step(t); }
+
+function bots(t) {
+  for (const o of d.offers) {
+    if (o.status !== 'pending') continue;
+    const b = BEHAVIOUR[o.shopId]; if (!b || !d.shops.get(o.shopId).active) continue;
+    if (t - o.sentAt < b.answer * MIN) continue;
+    if (rnd() < b.decline || (o.missing.length && rnd() < 0.4)) d.decline(o.id, t, o.missing.length ? 'shortage' : 'busy');
+    else if (d.accept(o.id, t, { commitToSource: true }).ok) bot[o.orderId] = { at: t, flake: !!info[o.orderId]?.flake || rnd() < b.flake };
+  }
+  for (const order of d.orders.values()) {
+    const shop = d.shops.get(order.shopId);
+    if (order.status === 'assigned') {
+      const s = (bot[order.id] ??= { at: t, flake: false });
+      if (s.shop !== shop.id) { if (s.shop) s.at = t; s.shop = shop.id; }
+      if (shop.hub) { if (t - s.at >= 3 * HOUR) d.ship(order.id, shop.id, `LBC-${70000 + seqNum(order.id)}`, t); continue; }
+      if (s.flake) continue;
+      if (order.sourcing && !order.sourcing.confirmed) { if (t - s.at >= 2 * HOUR) d.confirmSourced(order.id, shop.id, t); continue; }
+      if (t - s.at >= 3 * HOUR) d.ship(order.id, shop.id, `LLM-${58000 + seqNum(order.id)}`, t);
+    } else if (order.status === 'shipped') {
+      if (t - order.shippedAt >= (shop.island === order.address.island ? 4 : 36) * HOUR) d.deliver(order.id, t);
+    }
+  }
+}
+const seqNum = (id) => Number(id.split('-')[1]);
+
+// ---------- Derived numbers ----------
+function stageOf(o) {
+  if (o.status === 'dispatching') return 'find';
+  if (o.status === 'delivered') return 'done';
+  if (o.status === 'shipped') return 'way';
+  if (d.shops.get(o.shopId)?.hub) return 'hub';
+  if (o.sourcing && !o.sourcing.confirmed) return 'buy';
+  return 'pack';
+}
+const STAGE = { find: 'Finding shop', buy: 'Buying items', pack: 'Packing', way: 'On the way', done: 'Delivered', hub: '888 hub' };
+
+function money(o) {
+  const p = pkgOf(o.packageId), sale = p.price * o.qty, shop = d.shops.get(o.shopId);
+  const accepted = o.offer && o.offer.shopId === o.shopId;
+  const cost = !shop ? d.payoutFor(o) : shop.hub ? d.payoutFor(o) : (o.payout?.amount ?? (accepted ? o.offer.payout : d.payoutFor(o)));
+  const ship = !shop ? 0 : accepted ? o.offer.shippingCost : shippingCost(shop, o.address, p.weightKg * o.qty, config.shipping);
+  return { sale, refund: o.refund, cost, ship, hub: !!shop?.hub, margin: sale - o.refund - cost - ship };
+}
+
+function attention() {
+  const t = now(), out = [];
+  for (const o of d.orders.values()) {
+    const st = stageOf(o);
+    if (o.urgent && o.status === 'assigned') out.push({ o, bad: true, title: `${o.id}: 888 hub must ship it now`, why: o.failedShop ? `${shopName(o.failedShop)} missed the 24-hour deadline.` : 'A shop dropped it late.' });
+    else if (st === 'hub' && o.status === 'assigned') out.push({ o, title: `${o.id}: the 888 hub is sending this`, why: 'No partner shop took it. Pack it at the hub.' });
+    else if (st === 'find' && t - o.paidAt > HOUR) out.push({ o, title: `${o.id}: no shop yet after ${left(t - o.paidAt)}`, why: `Wave ${o.wave} is out. It goes to the hub automatically at ${config.hubAfterHours} h.` });
+    else if (st === 'buy' && o.sourcing.sourceBy - t < 2 * HOUR) out.push({ o, title: `${o.id}: ${shopName(o.shopId)} hasn't confirmed the missing items`, why: `Time is up in ${left(o.sourcing.sourceBy - t)}.` });
+    else if (st === 'pack' && o.deadline - t < 4 * HOUR) out.push({ o, bad: o.deadline - t < HOUR, title: `${o.id}: ${shopName(o.shopId)} hasn't shipped yet`, why: `Ship-by deadline in ${left(o.deadline - t)}.` });
+  }
+  for (const s of d.shops.values()) if (!s.hub && !s.active && s.strikes >= config.strikesToSuspend) out.push({ shop: s, bad: true, title: `${s.name} is paused after ${s.strikes} strikes`, why: 'No offers go to them until you reinstate them.' });
+  return out.sort((a, b) => (b.bad ? 1 : 0) - (a.bad ? 1 : 0));
+}
+
+function shopStats(s) {
+  const offers = d.offers.filter((o) => o.shopId === s.id);
+  const answered = offers.filter((o) => ['accepted', 'declined', 'expired'].includes(o.status));
+  const accepted = offers.filter((o) => o.status === 'accepted').length;
+  const mine = [...d.orders.values()].filter((o) => o.offer?.shopId === s.id && o.shopId === s.id);
+  const done = mine.filter((o) => o.status === 'delivered' || o.status === 'shipped').length;
+  const owed = mine.filter((o) => o.payout?.status === 'payable').reduce((t, o) => t + o.payout.amount, 0);
+  const paid = mine.filter((o) => o.payout?.status === 'paid').reduce((t, o) => t + o.payout.amount, 0);
+  const active = mine.filter((o) => o.status === 'assigned').length;
+  return { offers: offers.length, answered: answered.length, accepted, rate: answered.length ? accepted / answered.length : 0, done, owed, paid, active };
+}
+
+// ---------- Views ----------
+function overview() {
+  const os = [...d.orders.values()], att = attention();
+  const by = (st) => os.filter((o) => stageOf(o) === st).length;
+  const m = os.map(money), sales = m.reduce((t, x) => t + x.sale, 0), refunds = m.reduce((t, x) => t + x.refund, 0);
+  const margin = m.reduce((t, x) => t + x.margin, 0);
+  const owed = os.filter((o) => o.payout?.status === 'payable').reduce((t, o) => t + o.payout.amount, 0);
+  const stages = ['find', 'buy', 'pack', 'way', 'done', 'hub'], counts = stages.map(by), total = os.length || 1;
+  return `<section class="tiles">
+      <div class="tile"><small>Orders</small><b class="num">${os.length}</b><span>${by('done')} delivered</span></div>
+      <div class="tile ${att.length ? 'alarm' : 'good'}"><small>Needs you</small><b class="num">${att.length}</b><span>${att.filter((a) => a.bad).length} urgent</span></div>
+      <div class="tile"><small>In progress</small><b class="num">${by('find') + by('buy') + by('pack') + by('hub')}</b><span>${by('way')} on the way</span></div>
+      <div class="tile"><small>Sales</small><b class="num">${peso(sales)}</b><span>${refunds ? `${peso(refunds)} refunded` : 'no refunds'}</span></div>
+      <div class="tile good"><small>Est. margin</small><b class="num">${peso(margin)}</b><span>after shops and shipping</span></div>
+      <div class="tile"><small>Owed to shops</small><b class="num">${peso(owed)}</b><span>for delivered orders</span></div>
+    </section>
+    <section class="panel"><header><h2>Where orders are</h2><span class="note">${os.length} orders</span></header>
+      <div class="pipe" role="img" aria-label="${stages.map((s, i) => `${STAGE[s]} ${counts[i]}`).join(', ')}">${stages.map((s, i) => counts[i] ? `<div class="s-${s}" style="flex:${counts[i] / total}">${counts[i]}</div>` : '').join('')}</div>
+      <div class="legend">${stages.map((s, i) => `<span><i class="s-${s}"></i>${STAGE[s]} ${counts[i]}</span>`).join('')}</div>
+    </section>
+    <section class="panel"><header><h2>Needs you</h2><span class="note">Things the system can't settle by itself</span></header>
+      ${att.length ? `<ul class="attn">${att.map((a) => `<li class="${a.bad ? 'bad' : ''}"><div><b>${esc(a.title)}</b><small>${esc(a.why)}</small></div>
+        ${a.o ? `<button class="btn" data-open="${a.o.id}">Open</button>` : `<button class="btn" data-act="reinstate" data-shop="${a.shop.id}">Reinstate</button>`}</li>`).join('')}</ul>`
+        : '<div class="empty">All clear. Every order is with a shop and on time.</div>'}
+    </section>`;
+}
+
+function orderRow(o) {
+  const st = stageOf(o), t = now(), live = ['find', 'buy', 'pack', 'hub'].includes(st);
+  const due = o.deadline - t;
+  return `<li><button class="row" data-open="${o.id}" aria-current="${selected === o.id}">
+    <span class="id num">${o.id}</span>
+    <span class="what"><b>${esc(pkgOf(o.packageId).name)}${o.qty > 1 ? ` × ${o.qty}` : ''}</b><small>${esc(info[o.id].city)} · ${o.shopId ? esc(shopName(o.shopId)) : 'no shop yet'}</small></span>
+    <span class="right"><span class="pill p-${st}">${STAGE[st]}${o.urgent && o.status === 'assigned' ? ' · urgent' : ''}</span>
+      ${live ? `<span class="due num ${due < 4 * HOUR ? 'hot' : ''}">ship in ${left(due)}</span>` : `<span class="due">${o.status === 'delivered' ? 'delivered ' + tf.format(o.deliveredAt) : 'shipped ' + tf.format(o.shippedAt)}</span>`}</span>
+  </button></li>`;
+}
+
+const SAY = {
+  order_paid: (e) => ['', 'Buyer paid'],
+  offer_sent: (e) => ['', `Offer to ${shopName(e.shop)} (wave ${e.wave}, ${e.ring}, ${e.km} km${e.missing.length ? `, short ${e.missing.length}` : ''})`],
+  declined: (e) => ['', `${shopName(e.shop)} declined: ${e.reason === 'shortage' ? "can't get items" : 'busy'}`],
+  offer_expired: (e) => ['', `${shopName(e.shop)} didn't answer`],
+  accepted: (e) => ['ok', `${shopName(e.shop)} accepted`],
+  accepted_partial: (e) => ['ok', `${shopName(e.shop)} accepted, buying in: ${e.missing.join(', ')}`],
+  sourced: (e) => ['ok', `${shopName(e.shop)} has all items`],
+  cant_source: (e) => ['bad', `${shopName(e.shop)} couldn't get the items (no strike)`],
+  sourcing_missed: (e) => ['bad', `${shopName(e.shop)} didn't confirm items: strike ${e.strikes}`],
+  item_dropped: (e) => ['bad', `Removed ${e.item}, buyer refunded ${peso(e.refund)}`],
+  customer_notified: (e) => ['', 'Buyer told about the missing item'],
+  shipped: (e) => ['ok', `Shipped by ${shopName(e.shop)} · ${e.tracking}`],
+  payout_payable: (e) => ['ok', `Delivered. ${peso(e.amount)} owed to ${shopName(e.shop)}`],
+  deadline_missed: (e) => ['bad', `${shopName(e.shop)} missed the 24 h deadline: not paid, strike ${e.strikes}`],
+  to_hub: (e) => ['bad', `Sent to the 888 hub (${e.reason})`],
+  hub_urgent: (e) => ['bad', `Sent to the 888 hub as urgent (${e.reason})`],
+  hub_needs_stock: () => ['bad', 'The hub is short of stock for this'],
+};
+
+function detail(id) {
+  const o = d.orders.get(id); if (!o) return '';
+  const p = pkgOf(o.packageId), st = stageOf(o), m = money(o), who = info[id];
+  const ev = d.events.filter((e) => e.order === id && SAY[e.type]);
+  return `<section class="panel detail" aria-label="Order ${id}">
+    <header><h2>${id} · ${esc(p.name)}${o.qty > 1 ? ` × ${o.qty}` : ''}</h2><span class="pill p-${st}">${STAGE[st]}</span></header>
+    <div class="to"><b>${esc(who.name)}</b>, ${esc(who.city)}<br><span class="muted">Bought from ${esc(who.buyer)} · paid ${df.format(o.paidAt)} · ship by ${df.format(o.deadline)}</span></div>
+    <dl class="kv num">
+      <dt>Sale</dt><dd>${peso(m.sale)}</dd>
+      ${m.refund ? `<dt>Refunded to buyer</dt><dd>−${peso(m.refund)}</dd>` : ''}
+      <dt>${m.hub ? 'Goods from hub stock' : 'Shop payout'}</dt><dd>−${peso(m.cost)}</dd>
+      <dt>Shipping (estimate)</dt><dd>${o.shopId ? '−' + peso(m.ship) : 'not known yet'}</dd>
+      <dt class="total">Margin</dt><dd class="total">${peso(m.margin)}</dd>
+    </dl>
+    ${o.dropped.length ? `<p class="note">Removed: ${o.dropped.map((x) => `${x.qty} × ${esc(x.name)}`).join(', ')}.</p>` : ''}
+    <div class="acts">
+      ${['find', 'buy', 'pack'].includes(st) ? `<button class="btn danger" data-act="tohub" data-id="${id}">${confirmKey === 'hub' + id ? 'Tap again: send to hub' : 'Send to 888 hub now'}</button>` : ''}
+      ${st === 'hub' && o.status === 'assigned' ? `<button class="btn primary" data-act="hubship" data-id="${id}">Hub: mark as shipped</button>` : ''}
+      ${o.status === 'shipped' ? `<button class="btn" data-act="deliver" data-id="${id}">Mark delivered</button>` : ''}
+    </div>
+    <h3 style="font-size:14px">What happened</h3>
+    <ol class="timeline">${ev.map((e) => { const [c, txt] = SAY[e.type](e); return `<li class="${c}"><time class="num">${df.format(e.at)}</time>${esc(txt)}</li>`; }).join('')}</ol>
+  </section>`;
+}
+
+function ordersView() {
+  const att = new Set(attention().filter((a) => a.o).map((a) => a.o.id));
+  const F = { all: ['All', () => true], attn: ['Needs you', (o) => att.has(o.id)], find: ['Finding shop', (o) => stageOf(o) === 'find'],
+    work: ['With a shop', (o) => ['buy', 'pack'].includes(stageOf(o))], hub: ['888 hub', (o) => stageOf(o) === 'hub'],
+    way: ['On the way', (o) => stageOf(o) === 'way'], done: ['Delivered', (o) => stageOf(o) === 'done'] };
+  const all = [...d.orders.values()].sort((a, b) => b.paidAt - a.paidAt);
+  const list = all.filter(F[filter][1]);
+  if (!selected || !d.orders.has(selected)) selected = list[0]?.id ?? null;
+  return `<div class="two">
+    <section class="panel"><header><h2>Orders</h2><span class="note">Newest first. Times are Philippine time.</span></header>
+      <div class="chips" role="group" aria-label="Filter orders">${Object.entries(F).map(([k, [label, fn]]) => `<button data-filter="${k}" aria-pressed="${filter === k}">${label} <span class="num">${all.filter(fn).length}</span></button>`).join('')}</div>
+      ${list.length ? `<ul class="rows">${list.map(orderRow).join('')}</ul>` : '<div class="empty">No orders here.</div>'}
+    </section>
+    ${selected ? detail(selected) : '<section class="panel"><div class="empty">Pick an order to see its details.</div></section>'}
+  </div>`;
+}
+
+function shopsView() {
+  const shops = [...d.shops.values()].filter((s) => !s.hub);
+  return `<section class="panel"><header><h2>Partner shops</h2><span class="note">${shops.filter((s) => s.active).length} of ${shops.length} taking orders</span></header>
+    <div class="table"><table>
+      <thead><tr><th>Shop</th><th>Status</th><th>Strikes</th><th>Accepts</th><th class="r">Orders</th><th class="r">Owed</th><th></th></tr></thead>
+      <tbody>${shops.map((s) => { const x = shopStats(s); return `<tr>
+        <td><b>${esc(s.name)}</b><br><span class="muted">${esc(s.city)}</span></td>
+        <td><span class="pill ${s.active ? 'p-done' : 'p-bad'}">${s.active ? 'Taking orders' : 'Paused'}</span></td>
+        <td><span class="strikes" aria-label="${s.strikes} strikes">${[0, 1, 2].map((i) => `<i class="${i < s.strikes ? 'on' : ''}"></i>`).join('')}</span></td>
+        <td class="num"><span class="bar"><i style="width:${Math.round(x.rate * 100)}%"></i></span>${x.answered ? Math.round(x.rate * 100) + '%' : '–'} <span class="muted">of ${x.answered}</span></td>
+        <td class="r num">${x.done}${x.active ? ` <span class="muted">+${x.active} open</span>` : ''}</td>
+        <td class="r num">${x.owed ? peso(x.owed) : '–'}</td>
+        <td class="r"><div class="acts" style="justify-content:flex-end">
+          ${s.strikes ? `<button class="btn" data-act="clear" data-shop="${s.id}">Clear strikes</button>` : ''}
+          ${s.active ? `<button class="btn" data-act="pauseshop" data-shop="${s.id}">Pause</button>` : `<button class="btn primary" data-act="reinstate" data-shop="${s.id}">Reinstate</button>`}
+        </div></td></tr>`; }).join('')}</tbody></table></div>
+    <p class="note">"Accepts" is the share of offers the shop answered with yes. Low numbers slow orders down.</p>
+  </section>
+  <section class="panel"><header><h2>Add a partner shop</h2></header>
+    <form class="form" id="add-shop">
+      <label class="field">Shop name<input id="s-name" required placeholder="e.g. Pardo Grocery"></label>
+      <label class="field">City<select id="s-city">${Object.keys(CITIES).map((c) => `<option>${c}</option>`).join('')}</select></label>
+      <button class="btn primary" type="submit">Add shop</button>
+    </form>
+    <p class="note">New shops start with a full shelf in this demo. In the real app they fill in their stock from the shop screen.</p>
+  </section>`;
+}
+
+function payoutsView() {
+  const shops = [...d.shops.values()].filter((s) => !s.hub).map((s) => ({ s, x: shopStats(s) })).filter(({ x }) => x.owed || x.paid);
+  const owed = shops.reduce((t, { x }) => t + x.owed, 0);
+  return `<section class="tiles" style="grid-template-columns:repeat(3,1fr)">
+      <div class="tile"><small>Owed now</small><b class="num">${peso(owed)}</b><span>${shops.filter(({ x }) => x.owed).length} shops</span></div>
+      <div class="tile good"><small>Paid out</small><b class="num">${peso(paidOut.reduce((t, p) => t + p.amount, 0))}</b><span>${paidOut.length} payments</span></div>
+      <div class="tile"><small>Not paid (late)</small><b class="num">${d.events.filter((e) => e.type === 'deadline_missed').length}</b><span>orders shipped late or never</span></div>
+    </section>
+    <section class="panel"><header><h2>To pay</h2><span class="note">Only delivered orders that shipped within 24 hours</span></header>
+      ${shops.some(({ x }) => x.owed) ? `<div class="table"><table><thead><tr><th>Shop</th><th class="r">Orders</th><th class="r">Amount</th><th></th></tr></thead><tbody>
+      ${shops.filter(({ x }) => x.owed).map(({ s, x }) => { const n = [...d.orders.values()].filter((o) => o.payout?.shop === s.id && o.payout.status === 'payable').length;
+        return `<tr><td><b>${esc(s.name)}</b><br><span class="muted">${esc(s.city)}</span></td><td class="r num">${n}</td><td class="r num"><b>${peso(x.owed)}</b></td>
+        <td class="r"><button class="btn primary" data-act="pay" data-shop="${s.id}">${confirmKey === 'pay' + s.id ? 'Tap again to confirm' : 'Mark as paid'}</button></td></tr>`; }).join('')}
+      </tbody></table></div>` : '<div class="empty">Nothing owed right now.</div>'}
+      <p class="note">"Mark as paid" only records the payment here. Sending the money is done in your bank or payment app until automatic payouts are set up.</p>
+    </section>
+    ${paidOut.length ? `<section class="panel"><header><h2>Payment history</h2></header><div class="table"><table><thead><tr><th>When</th><th>Shop</th><th class="r">Orders</th><th class="r">Amount</th></tr></thead><tbody>
+      ${[...paidOut].reverse().map((p) => `<tr><td class="num">${df.format(p.at)}</td><td>${esc(shopName(p.shop))}</td><td class="r num">${p.orders}</td><td class="r num">${peso(p.amount)}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+}
+
+const RULES = [
+  ['rings.localKm', 'Local ring', 'km', 'Shops this close to the address are asked first.', 1, 50],
+  ['rings.nearbyKm', 'Nearby ring', 'km', 'Asked next, before the rest of the island.', 2, 100],
+  ['waveSize', 'Shops per wave', 'shops', 'How many shops get the same offer at once. First to accept wins.', 1, 10],
+  ['offerMinutes', 'Time to answer', 'min', 'After this, the next wave goes out.', 2, 120],
+  ['hubAfterHours', 'Send to hub after', 'hours', 'If no shop has accepted by then, the 888 hub sends it.', 1, 20],
+  ['shipWithinHours', 'Ship within', 'hours', 'Shops must hand it to the courier within this time of payment, or they are not paid.', 6, 72],
+  ['strikesToSuspend', 'Strikes before pause', 'strikes', 'A shop is paused when it reaches this many.', 1, 10],
+  ['partial.maxMissingItems', 'Short items allowed', 'items', 'A shop short of up to this many items can still take the order.', 0, 5],
+  ['partial.maxMissingValuePct', 'Short value allowed', '% of pack', 'Missing items can be worth at most this much of the pack.', 0, 100],
+  ['partial.sourceWithinHours', 'Time to buy in items', 'hours', 'A short shop must confirm it has everything within this time.', 1, 20],
+  ['partial.shortageDeclinesToDrop', 'Remove item after', 'shops say no', 'When this many shops can\'t get the same item, it is removed and the buyer refunded.', 1, 10],
+];
+const getPath = (k) => k.split('.').reduce((o, x) => o[x], config);
+const setPath = (k, v) => { const ks = k.split('.'), last = ks.pop(); ks.reduce((o, x) => o[x], config)[last] = v; };
+
+function rulesView() {
+  return `<section class="panel"><header><h2>Dispatch rules</h2><span class="note">Changes apply to new offers straight away</span></header>
+    <div class="rules">${RULES.map(([k, label, unit, help, min, max]) => `<div class="rule">
+      <label for="r-${k}">${label} <span class="muted" style="font-weight:400">(${unit})</span></label>
+      <input id="r-${k}" data-rule="${k}" type="number" min="${min}" max="${max}" step="1" value="${getPath(k)}" inputmode="numeric">
+      <small>${help}</small></div>`).join('')}</div>
+    <p class="note">In the real system these settings will be saved on the server, so every shop and order uses the same numbers.</p>
+  </section>`;
+}
+
+// ---------- Render ----------
+function render() {
+  const att = attention().length;
+  for (const b of document.querySelectorAll('.tabs button')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    if (b.dataset.tab === 'overview') b.innerHTML = `Overview${att ? `<span class="badge num">${att}</span>` : ''}`;
+  }
+  const v = document.getElementById('view');
+  v.innerHTML = tab === 'overview' ? overview() : tab === 'orders' ? ordersView() : tab === 'shops' ? shopsView() : tab === 'payouts' ? payoutsView() : rulesView();
+  document.getElementById('clock').textContent = `Philippines ${df.format(now())}${offset ? ` · demo +${Math.round(offset / HOUR)} h` : ''}`;
+}
+
+let toastTimer;
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3200); }
+function skip(h) { const from = now(); offset += h * HOUR; run(from + 5 * MIN, now()); }
+
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || (b.type === 'submit' && b.form)) return;
+  const t = now(), act = b.dataset.act, id = b.dataset.id, sid = b.dataset.shop;
+  const confirm2 = (key) => { if (confirmKey === key) { confirmKey = null; return true; } confirmKey = key; render(); return false; };
+  if (b.dataset.tab) { tab = b.dataset.tab; confirmKey = null; render(); return; }
+  if (b.dataset.filter) { filter = b.dataset.filter; selected = null; render(); return; }
+  if (b.dataset.open) { selected = b.dataset.open; tab = 'orders'; filter = 'all'; render(); return; }
+  if (act === 'tohub') { if (!confirm2('hub' + id)) return; const o = d.orders.get(id);
+    if (o.status === 'assigned' && o.shopId && !d.shops.get(o.shopId).hub) d.release(o);
+    d.toHub(o, t, 'sent by admin', true); bot[id] = { at: t }; toast(`${id} is now with the 888 hub`); }
+  if (act === 'hubship') { const r = d.ship(id, 'hub', `LBC-${70000 + seqNum(id)}`, t); toast(r.ok ? 'Marked as shipped from the hub' : r.reason); }
+  if (act === 'deliver') { d.deliver(id, t); toast('Marked as delivered'); }
+  if (act === 'pauseshop') { d.shops.get(sid).active = false; toast(`${shopName(sid)} paused. No new offers go to them.`); }
+  if (act === 'reinstate') { const s = d.shops.get(sid); s.active = true; s.strikes = 0; toast(`${s.name} reinstated with strikes cleared`); }
+  if (act === 'clear') { d.shops.get(sid).strikes = 0; toast('Strikes cleared'); }
+  if (act === 'pay') { if (!confirm2('pay' + sid)) return;
+    const os = [...d.orders.values()].filter((o) => o.payout?.shop === sid && o.payout.status === 'payable');
+    const amount = os.reduce((s, o) => s + o.payout.amount, 0); os.forEach((o) => { o.payout.status = 'paid'; });
+    paidOut.push({ at: t, shop: sid, orders: os.length, amount }); toast(`Recorded ${peso(amount)} paid to ${shopName(sid)}`); }
+  const demo = b.dataset.demo;
+  if (demo === 'reset') { start(); toast('Started over'); return; }
+  if (demo === 'one') { const id2 = newOrder(t); selected = id2; tab = 'orders'; filter = 'all'; toast(`New order ${id2}`); }
+  if (demo === 'rush') { for (let i = 0; i < 8; i++) newOrder(t); toast('8 new orders came in'); }
+  if (demo === 'h1') { skip(1); toast('Skipped ahead 1 hour'); }
+  if (demo === 'h8') { skip(8); toast('Skipped ahead 8 hours'); }
+  if (act !== 'tohub' && act !== 'pay') confirmKey = null;
+  lastEv = d.events.length;
+  render();
+});
+
+document.addEventListener('submit', (ev) => {
+  if (ev.target.id !== 'add-shop') return;
+  ev.preventDefault();
+  const name = document.getElementById('s-name').value.trim(), city = document.getElementById('s-city').value;
+  if (!name) { document.getElementById('s-name').focus(); return; }
+  const [lat, lng, island] = CITIES[city], id = 'new-' + Date.now().toString(36);
+  d.shops.set(id, { id, name, city, island, lat: lat + 0.006, lng: lng + 0.004, stock: fullStock(6), reserved: {}, active: true, strikes: 0, rating: 4.5 });
+  BEHAVIOUR[id] = { answer: 5, decline: 0.1, flake: 0 };
+  toast(`${name} added. It gets offers for orders near ${city}.`);
+  render();
+});
+
+document.addEventListener('change', (ev) => {
+  const t = ev.target; if (!t.dataset.rule) return;
+  const v = Number(t.value);
+  if (!t.checkValidity() || !Number.isFinite(v)) { toast(`Use a whole number between ${t.min} and ${t.max}.`); t.value = getPath(t.dataset.rule); return; }
+  setPath(t.dataset.rule, v); toast('Rule saved. New offers use it.');
+});
+
+setInterval(() => {
+  step(now());
+  const editing = document.activeElement?.matches?.('input, select');
+  if (d.events.length !== lastEv && !editing) { lastEv = d.events.length; render(); }
+  else document.getElementById('clock').textContent = `Philippines ${df.format(now())}${offset ? ` · demo +${Math.round(offset / HOUR)} h` : ''}`;
+}, 2000);
+
+start();
+</script>

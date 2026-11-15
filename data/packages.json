@@ -1,0 +1,1028 @@
+{
+  "store": {
+    "name": "888 Grocery",
+    "tagline": "Send love home, not just cash.",
+    "tagline_fil": "Padala ng pagmamahal, diretso sa pamilya.",
+    "currency": "PHP",
+    "usd_rate_note": "USD shown at an indicative PHP 58 = USD 1. Shopify Markets converts live at checkout.",
+    "usd_rate": 58,
+    "packing_cost": 60,
+    "notes": "unit_cost = estimated Philippine supermarket shelf price in PHP (Nov 2026). Replace with your supplier quotes before going live.",
+    "shopify_currency": "NZD"
+  },
+  "packages": [
+    {
+      "sku": "888-TIPID",
+      "name": "Tipid Starter Pack",
+      "fil": "Pang-araw-araw na tipid",
+      "price": 1288,
+      "weight_kg": 8.5,
+      "dims_cm": [
+        40,
+        30,
+        25
+      ],
+      "theme": {
+        "bg": "#FFF4E0",
+        "accent": "#E8551E",
+        "deep": "#7A2410"
+      },
+      "hero": [
+        "🍚",
+        "🍜",
+        "🥫",
+        "☕"
+      ],
+      "audience": "A practical starter pack of everyday staples for a small household.",
+      "highlights": [
+        "5kg rice",
+        "10 noodles",
+        "8 canned ulam",
+        "Coffee & oil"
+      ],
+      "items": [
+        [
+          1,
+          "Well-milled rice, 5kg",
+          260,
+          "🍚"
+        ],
+        [
+          6,
+          "Lucky Me! Pancit Canton (80g)",
+          18,
+          "🍜"
+        ],
+        [
+          4,
+          "Lucky Me! instant mami (55g)",
+          11,
+          "🍜"
+        ],
+        [
+          4,
+          "Sardines in tomato sauce (155g)",
+          22,
+          "🐟"
+        ],
+        [
+          2,
+          "Century Tuna flakes (155g)",
+          42,
+          "🥫"
+        ],
+        [
+          2,
+          "Argentina Corned Beef (150g)",
+          42,
+          "🥫"
+        ],
+        [
+          1,
+          "Cooking oil, 1L",
+          110,
+          "🫗"
+        ],
+        [
+          1,
+          "Nescafé 3-in-1 Original, 10 sticks",
+          80,
+          "☕"
+        ]
+      ],
+      "price_nzd": 38.88
+    },
+    {
+      "sku": "888-MERIENDA",
+      "name": "Merienda Snack Pack",
+      "fil": "Para sa mga bata at barkada",
+      "price": 1188,
+      "weight_kg": 4.5,
+      "dims_cm": [
+        40,
+        30,
+        25
+      ],
+      "theme": {
+        "bg": "#FFF0F3",
+        "accent": "#E83E6C",
+        "deep": "#6B1530"
+      },
+      "hero": [
+        "🍪",
+        "🍫",
+        "🥤",
+        "🍿"
+      ],
+      "audience": "Favourite Pinoy snacks and drinks for kids and the whole barkada.",
+      "highlights": [
+        "Chips & crackers",
+        "Chocolate treats",
+        "Juice drinks",
+        "Milo"
+      ],
+      "items": [
+        [
+          2,
+          "Piattos cheese (85g)",
+          38,
+          "🥔"
+        ],
+        [
+          2,
+          "Nova multigrain (78g)",
+          38,
+          "🌾"
+        ],
+        [
+          2,
+          "Oishi Prawn Crackers (90g)",
+          30,
+          "🦐"
+        ],
+        [
+          1,
+          "SkyFlakes crackers, 10-pack",
+          75,
+          "🍘"
+        ],
+        [
+          1,
+          "Rebisco sandwich, 10-pack",
+          70,
+          "🍪"
+        ],
+        [
+          1,
+          "Cream-O cookies, 10-pack",
+          70,
+          "🍪"
+        ],
+        [
+          1,
+          "Choco Mucho bars, 10-pack",
+          100,
+          "🍫"
+        ],
+        [
+          1,
+          "Zest-O juice drink, 10 x 200ml",
+          90,
+          "🧃"
+        ],
+        [
+          1,
+          "Milo powder, 600g",
+          210,
+          "🥤"
+        ]
+      ],
+      "price_nzd": 34.88
+    },
+    {
+      "sku": "888-ALMUSAL",
+      "name": "Almusal Breakfast Pack",
+      "fil": "Masarap na umaga ng pamilya",
+      "price": 1688,
+      "weight_kg": 6,
+      "dims_cm": [
+        40,
+        30,
+        25
+      ],
+      "theme": {
+        "bg": "#FFF8D6",
+        "accent": "#D99A00",
+        "deep": "#5C3D00"
+      },
+      "hero": [
+        "☕",
+        "🥛",
+        "🍞",
+        "🥣"
+      ],
+      "audience": "Everything for a proper Filipino breakfast table: coffee, milk, spreads and silog partners.",
+      "highlights": [
+        "Coffee & milk",
+        "Oats",
+        "Pandesal spreads",
+        "Corned beef & meat loaf"
+      ],
+      "items": [
+        [
+          1,
+          "Nescafé 3-in-1 Original, 30 sticks",
+          230,
+          "☕"
+        ],
+        [
+          1,
+          "Bear Brand Fortified powdered milk, 680g",
+          230,
+          "🥛"
+        ],
+        [
+          1,
+          "Quaker Oats, 800g",
+          170,
+          "🥣"
+        ],
+        [
+          1,
+          "Lady's Choice Sandwich Spread (220ml)",
+          75,
+          "🥪"
+        ],
+        [
+          1,
+          "Lily's Peanut Butter (340g)",
+          110,
+          "🥜"
+        ],
+        [
+          1,
+          "Reno Liver Spread (85g)",
+          40,
+          "🍞"
+        ],
+        [
+          2,
+          "Purefoods Corned Beef (210g)",
+          80,
+          "🥫"
+        ],
+        [
+          2,
+          "CDO Meat Loaf (150g)",
+          30,
+          "🥫"
+        ],
+        [
+          1,
+          "White sugar, 1kg",
+          90,
+          "🍬"
+        ]
+      ],
+      "price_nzd": 49.88
+    },
+    {
+      "sku": "888-MALINIS",
+      "name": "Malinis na Bahay Hygiene Pack",
+      "fil": "Linis at ginhawa sa bahay",
+      "price": 1888,
+      "weight_kg": 7,
+      "dims_cm": [
+        45,
+        35,
+        30
+      ],
+      "theme": {
+        "bg": "#E6F6FB",
+        "accent": "#0F8FB8",
+        "deep": "#06415A"
+      },
+      "hero": [
+        "🧼",
+        "🧴",
+        "🪥",
+        "🧻"
+      ],
+      "audience": "Household and personal-care essentials so the family can keep the home fresh and clean.",
+      "highlights": [
+        "Laundry & dishwashing",
+        "Soap & shampoo",
+        "Toothpaste & brushes",
+        "12 tissue rolls"
+      ],
+      "items": [
+        [
+          1,
+          "Laundry powder detergent, 1.3kg",
+          130,
+          "🧺"
+        ],
+        [
+          1,
+          "Fabric conditioner, 24 sachets",
+          110,
+          "🌸"
+        ],
+        [
+          1,
+          "Joy dishwashing liquid (495ml)",
+          90,
+          "🍽️"
+        ],
+        [
+          1,
+          "Safeguard bar soap, 3 x 125g",
+          150,
+          "🧼"
+        ],
+        [
+          1,
+          "Shampoo, 340ml",
+          160,
+          "🧴"
+        ],
+        [
+          2,
+          "Colgate toothpaste (150g)",
+          100,
+          "🪥"
+        ],
+        [
+          1,
+          "Toothbrush, family 4-pack",
+          120,
+          "🪥"
+        ],
+        [
+          1,
+          "Bathroom tissue, 12 rolls",
+          180,
+          "🧻"
+        ],
+        [
+          1,
+          "Bleach, 1L",
+          50,
+          "🫧"
+        ],
+        [
+          1,
+          "70% isopropyl alcohol (500ml)",
+          90,
+          "🧴"
+        ]
+      ],
+      "price_nzd": 55.88
+    },
+    {
+      "sku": "888-PAMILYA",
+      "name": "Pamilya Essentials Pack",
+      "fil": "Kumpletong grocery ng pamilya",
+      "price": 2888,
+      "weight_kg": 17,
+      "dims_cm": [
+        50,
+        40,
+        35
+      ],
+      "theme": {
+        "bg": "#E8F5E4",
+        "accent": "#2E8B3A",
+        "deep": "#123D18"
+      },
+      "hero": [
+        "🍚",
+        "🥫",
+        "🧂",
+        "🍜"
+      ],
+      "audience": "Our best seller: a complete week-plus grocery run for a family of 4 to 5.",
+      "highlights": [
+        "10kg rice",
+        "20 canned goods",
+        "Condiments & oil",
+        "Noodles & coffee"
+      ],
+      "items": [
+        [
+          1,
+          "Well-milled rice, 10kg",
+          520,
+          "🍚"
+        ],
+        [
+          6,
+          "Lucky Me! Pancit Canton (80g)",
+          18,
+          "🍜"
+        ],
+        [
+          6,
+          "Lucky Me! instant mami (55g)",
+          11,
+          "🍜"
+        ],
+        [
+          6,
+          "Sardines in tomato sauce (155g)",
+          22,
+          "🐟"
+        ],
+        [
+          4,
+          "Century Tuna flakes (155g)",
+          42,
+          "🥫"
+        ],
+        [
+          4,
+          "Argentina Corned Beef (150g)",
+          42,
+          "🥫"
+        ],
+        [
+          3,
+          "CDO Meat Loaf (150g)",
+          30,
+          "🥫"
+        ],
+        [
+          3,
+          "Vienna sausage (130g)",
+          38,
+          "🌭"
+        ],
+        [
+          1,
+          "Cooking oil, 1L",
+          110,
+          "🫗"
+        ],
+        [
+          1,
+          "Soy sauce, 1L",
+          70,
+          "🍶"
+        ],
+        [
+          1,
+          "Cane vinegar, 1L",
+          55,
+          "🍶"
+        ],
+        [
+          1,
+          "Fish sauce (patis), 750ml",
+          55,
+          "🍶"
+        ],
+        [
+          3,
+          "Sinigang sa sampalok mix (44g)",
+          25,
+          "🍲"
+        ],
+        [
+          1,
+          "White sugar, 1kg",
+          90,
+          "🍬"
+        ],
+        [
+          1,
+          "Iodized salt, 1kg",
+          30,
+          "🧂"
+        ],
+        [
+          1,
+          "Nescafé 3-in-1 Original, 10 sticks",
+          80,
+          "☕"
+        ]
+      ],
+      "price_nzd": 84.88
+    },
+    {
+      "sku": "888-LOLOLOLA",
+      "name": "Lolo & Lola Care Pack",
+      "fil": "Alaga para kina Lolo at Lola",
+      "price": 3288,
+      "weight_kg": 6,
+      "dims_cm": [
+        40,
+        30,
+        25
+      ],
+      "theme": {
+        "bg": "#F1ECFA",
+        "accent": "#7B4FC4",
+        "deep": "#33195E"
+      },
+      "hero": [
+        "🥛",
+        "🥣",
+        "🐟",
+        "💜"
+      ],
+      "audience": "Gentle, nourishing food for grandparents: adult nutrition milk, oats and lighter ulam.",
+      "highlights": [
+        "Ensure Gold",
+        "Anlene adult milk",
+        "Oats & crackers",
+        "Tuna in water"
+      ],
+      "items": [
+        [
+          1,
+          "Ensure Gold vanilla, 400g",
+          950,
+          "🥛"
+        ],
+        [
+          1,
+          "Anlene Gold adult milk, 600g",
+          450,
+          "🥛"
+        ],
+        [
+          1,
+          "Quaker Oats, 800g",
+          170,
+          "🥣"
+        ],
+        [
+          1,
+          "SkyFlakes crackers, 10-pack",
+          75,
+          "🍘"
+        ],
+        [
+          4,
+          "Century Tuna in water (155g)",
+          45,
+          "🐟"
+        ],
+        [
+          2,
+          "Campbell's cream soup (298g)",
+          70,
+          "🍲"
+        ],
+        [
+          1,
+          "Brown sugar, 1kg",
+          80,
+          "🍬"
+        ],
+        [
+          1,
+          "Ginger tea (salabat), 10 sachets",
+          90,
+          "🍵"
+        ]
+      ],
+      "price_nzd": 96.88
+    },
+    {
+      "sku": "888-NOCHEBUENA",
+      "name": "Noche Buena Christmas Pack",
+      "fil": "Handang-handa sa Pasko",
+      "price": 3288,
+      "weight_kg": 9,
+      "dims_cm": [
+        50,
+        40,
+        30
+      ],
+      "theme": {
+        "bg": "#FBEAEA",
+        "accent": "#C8102E",
+        "deep": "#0F5132"
+      },
+      "hero": [
+        "🎄",
+        "🍖",
+        "🧀",
+        "🍝"
+      ],
+      "audience": "The full Noche Buena table: ham, queso de bola, spaghetti and fruit salad ingredients.",
+      "highlights": [
+        "Fiesta ham 1kg",
+        "Queso de bola",
+        "Spaghetti set",
+        "Fruit salad set"
+      ],
+      "seasonal": true,
+      "items": [
+        [
+          1,
+          "Purefoods Fiesta Ham, 1kg",
+          520,
+          "🍖"
+        ],
+        [
+          1,
+          "Queso de bola (edam cheese), 500g",
+          300,
+          "🧀"
+        ],
+        [
+          1,
+          "Spaghetti pasta, 900g",
+          95,
+          "🍝"
+        ],
+        [
+          1,
+          "Sweet-style spaghetti sauce, 1kg",
+          100,
+          "🍅"
+        ],
+        [
+          1,
+          "Elbow macaroni, 400g",
+          60,
+          "🥣"
+        ],
+        [
+          1,
+          "Del Monte Fruit Cocktail (836g)",
+          125,
+          "🍑"
+        ],
+        [
+          2,
+          "Nestlé All Purpose Cream (250ml)",
+          70,
+          "🥛"
+        ],
+        [
+          2,
+          "Sweetened condensed milk (300ml)",
+          55,
+          "🥛"
+        ],
+        [
+          1,
+          "Kaong in syrup (340g)",
+          70,
+          "🍇"
+        ],
+        [
+          1,
+          "Nata de coco (340g)",
+          70,
+          "🥥"
+        ],
+        [
+          1,
+          "Lady's Choice mayonnaise (470ml)",
+          140,
+          "🥚"
+        ],
+        [
+          1,
+          "Eden cheese (165g)",
+          65,
+          "🧀"
+        ],
+        [
+          1,
+          "Tablea hot chocolate, 200g",
+          90,
+          "🍫"
+        ]
+      ],
+      "price_nzd": 96.88
+    },
+    {
+      "sku": "888-BIGAS",
+      "name": "Bigas Monthly Family Pack",
+      "fil": "Isang buwang kabuhayan",
+      "price": 5888,
+      "weight_kg": 40,
+      "dims_cm": [
+        60,
+        45,
+        40
+      ],
+      "theme": {
+        "bg": "#F5EEDF",
+        "accent": "#A8742C",
+        "deep": "#4A3010"
+      },
+      "hero": [
+        "🍚",
+        "🥫",
+        "🛒",
+        "🏠"
+      ],
+      "audience": "A whole month of staples for a big household: a full 25kg sack of rice plus ulam and pantry goods.",
+      "highlights": [
+        "25kg rice sack",
+        "30 canned goods",
+        "Full pantry set",
+        "Coffee & milk"
+      ],
+      "items": [
+        [
+          1,
+          "Well-milled rice, 25kg sack",
+          1350,
+          "🍚"
+        ],
+        [
+          10,
+          "Lucky Me! Pancit Canton (80g)",
+          18,
+          "🍜"
+        ],
+        [
+          10,
+          "Lucky Me! instant mami (55g)",
+          11,
+          "🍜"
+        ],
+        [
+          10,
+          "Sardines in tomato sauce (155g)",
+          22,
+          "🐟"
+        ],
+        [
+          6,
+          "Century Tuna flakes (155g)",
+          42,
+          "🥫"
+        ],
+        [
+          6,
+          "Argentina Corned Beef (150g)",
+          42,
+          "🥫"
+        ],
+        [
+          4,
+          "CDO Meat Loaf (150g)",
+          30,
+          "🥫"
+        ],
+        [
+          4,
+          "Vienna sausage (130g)",
+          38,
+          "🌭"
+        ],
+        [
+          2,
+          "Cooking oil, 1L",
+          110,
+          "🫗"
+        ],
+        [
+          1,
+          "Soy sauce, 1L",
+          70,
+          "🍶"
+        ],
+        [
+          1,
+          "Cane vinegar, 1L",
+          55,
+          "🍶"
+        ],
+        [
+          1,
+          "Fish sauce (patis), 750ml",
+          55,
+          "🍶"
+        ],
+        [
+          1,
+          "Oyster sauce (405g)",
+          75,
+          "🍶"
+        ],
+        [
+          5,
+          "Sinigang sa sampalok mix (44g)",
+          25,
+          "🍲"
+        ],
+        [
+          1,
+          "Seasoning granules, 12 sachets",
+          55,
+          "🧂"
+        ],
+        [
+          2,
+          "White sugar, 1kg",
+          90,
+          "🍬"
+        ],
+        [
+          1,
+          "Iodized salt, 1kg",
+          30,
+          "🧂"
+        ],
+        [
+          1,
+          "Nescafé 3-in-1 Original, 30 sticks",
+          230,
+          "☕"
+        ],
+        [
+          1,
+          "Bear Brand Fortified powdered milk, 680g",
+          230,
+          "🥛"
+        ]
+      ],
+      "price_nzd": 173.88
+    },
+    {
+      "sku": "888-PROSPERITY",
+      "name": "888 Prosperity Box",
+      "fil": "Suwerte at kasaganaan",
+      "price": 8888,
+      "weight_kg": 34,
+      "dims_cm": [
+        60,
+        45,
+        45
+      ],
+      "theme": {
+        "bg": "#1A1208",
+        "accent": "#D4A537",
+        "deep": "#B8141B",
+        "dark": true
+      },
+      "hero": [
+        "🧧",
+        "🍚",
+        "🍖",
+        "✨"
+      ],
+      "audience": "Our premium gift for big occasions — birthdays, Christmas, New Year and homecomings. Everything from the Pamilya Pack plus party favourites and treats.",
+      "highlights": [
+        "10kg rice + full pantry",
+        "Ham & queso de bola",
+        "Snacks & treats",
+        "Hygiene essentials"
+      ],
+      "items": [
+        [
+          1,
+          "Well-milled rice, 10kg",
+          520,
+          "🍚"
+        ],
+        [
+          6,
+          "Lucky Me! Pancit Canton (80g)",
+          18,
+          "🍜"
+        ],
+        [
+          6,
+          "Sardines in tomato sauce (155g)",
+          22,
+          "🐟"
+        ],
+        [
+          4,
+          "Century Tuna flakes (155g)",
+          42,
+          "🥫"
+        ],
+        [
+          4,
+          "Purefoods Corned Beef (210g)",
+          80,
+          "🥫"
+        ],
+        [
+          2,
+          "Luncheon meat (340g)",
+          130,
+          "🥫"
+        ],
+        [
+          1,
+          "Purefoods Fiesta Ham, 1kg",
+          520,
+          "🍖"
+        ],
+        [
+          1,
+          "Queso de bola (edam cheese), 500g",
+          300,
+          "🧀"
+        ],
+        [
+          1,
+          "Spaghetti pasta + sweet sauce set",
+          195,
+          "🍝"
+        ],
+        [
+          1,
+          "Del Monte Fruit Cocktail (836g)",
+          125,
+          "🍑"
+        ],
+        [
+          1,
+          "Cooking oil, 1L",
+          110,
+          "🫗"
+        ],
+        [
+          1,
+          "Soy sauce + vinegar + patis set",
+          180,
+          "🍶"
+        ],
+        [
+          1,
+          "Nescafé 3-in-1 Original, 30 sticks",
+          230,
+          "☕"
+        ],
+        [
+          1,
+          "Bear Brand Fortified powdered milk, 680g",
+          230,
+          "🥛"
+        ],
+        [
+          1,
+          "Milo powder, 600g",
+          210,
+          "🥤"
+        ],
+        [
+          1,
+          "Choco Mucho bars, 10-pack",
+          100,
+          "🍫"
+        ],
+        [
+          1,
+          "SkyFlakes crackers, 10-pack",
+          75,
+          "🍘"
+        ],
+        [
+          2,
+          "Piattos cheese (85g)",
+          38,
+          "🥔"
+        ],
+        [
+          1,
+          "Laundry powder detergent, 1.3kg",
+          130,
+          "🧺"
+        ],
+        [
+          1,
+          "Safeguard bar soap, 3 x 125g",
+          150,
+          "🧼"
+        ],
+        [
+          1,
+          "Bathroom tissue, 12 rolls",
+          180,
+          "🧻"
+        ],
+        [
+          1,
+          "Eden cheese (165g)",
+          65,
+          "🧀"
+        ],
+        [
+          2,
+          "Nestlé All Purpose Cream (250ml)",
+          70,
+          "🥛"
+        ],
+        [
+          2,
+          "Sweetened condensed milk (300ml)",
+          55,
+          "🥛"
+        ],
+        [
+          1,
+          "Cream-O cookies, 10-pack",
+          70,
+          "🍪"
+        ],
+        [
+          1,
+          "Zest-O juice drink, 10 x 200ml",
+          90,
+          "🧃"
+        ],
+        [
+          1,
+          "Red ang pao gift envelope + greeting card",
+          25,
+          "🧧"
+        ]
+      ],
+      "price_nzd": 261.88
+    }
+  ]
+}

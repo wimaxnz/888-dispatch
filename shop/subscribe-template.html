@@ -1,0 +1,550 @@
+<title>888 Gift Subscriptions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column (max 560px) — brown 888 header with tabs; "Start" is a short numbered form ending in a summary; "My gifts" lists each subscription as one card with its deliveries. */
+:root {
+  --bg: #f5f2ee; --surface: #ffffff; --ink: #2a1c13; --muted: #76675b; --line: #e6ddd3;
+  --brand: #4a2e1c; --brand-ink: #fdf8f2; --gold: #a8741f; --gold-soft: #f6ead3;
+  --ok: #2c7a4b; --ok-soft: #e3f3e9; --warn: #8a5a00; --warn-soft: #fff3d6; --warn-line: #e7bd5b;
+  --bad: #b3261e; --bad-soft: #fbe6e4; --focus: #bc862c; --pick: #4a2e1c;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-head: "Archivo", "Inter", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15100c; --surface: #211913; --ink: #f2e9e0; --muted: #b3a393; --line: #3a2e25;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --warn-line: #7c5d1d;
+  --bad: #f2948b; --bad-soft: #3b1b18; --focus: #dcae5e; --pick: #dcae5e; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #15100c; --surface: #211913; --ink: #f2e9e0; --muted: #b3a393; --line: #3a2e25;
+  --brand: #2c1b10; --brand-ink: #fdf8f2; --gold: #dcae5e; --gold-soft: #3a2c16;
+  --ok: #6fca93; --ok-soft: #173225; --warn: #f0c46a; --warn-soft: #33270f; --warn-line: #7c5d1d;
+  --bad: #f2948b; --bad-soft: #3b1b18; --focus: #dcae5e; --pick: #dcae5e; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body) }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand) }
+.wrap { max-width: 560px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+h1, h2, h3, h4 { font-family: var(--f-head); text-wrap: balance; margin: 0 }
+button, input, select, textarea { font: inherit; color: inherit }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px }
+.num { font-variant-numeric: tabular-nums }
+
+.top { background: var(--brand); color: var(--brand-ink); position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5 }
+.top .wrap { display: flex; align-items: center; gap: 12px; padding-block: 12px 8px }
+.top img { height: 30px; width: auto; display: block }
+.top .cur { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: rgba(253,248,242,.75) }
+.top select { background: transparent; color: var(--brand-ink); border: 1px solid rgba(255,255,255,.3); border-radius: 8px; padding: 4px 6px; font-size: 13px }
+.top select option { color: #2a1c13 }
+.tabs { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid rgba(255,255,255,.12) }
+.tabs button { background: none; border: 0; color: rgba(253,248,242,.72); padding: 10px 4px 11px; font-weight: 600; cursor: pointer; border-bottom: 3px solid transparent }
+.tabs button[aria-selected="true"] { color: var(--brand-ink); border-bottom-color: #dcae5e }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #dcae5e; color: #2a1c13; font-size: 11.5px; line-height: 18px; margin-left: 4px }
+
+main { padding-block: 18px 28px; display: grid; gap: 16px }
+.intro h1 { font-size: 24px; line-height: 1.2 }
+.intro p { margin: 6px 0 0; color: var(--muted) }
+
+.step { display: grid; gap: 10px }
+.step > h2 { font-size: 16px; display: flex; gap: 10px; align-items: center }
+.step > h2 span { width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: var(--brand-ink); display: inline-grid; place-items: center; font-size: 13px; flex: none }
+.packs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.pack { position: relative; border: 1.5px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px; cursor: pointer; display: grid; gap: 4px; align-content: start; min-width: 0 }
+.pack input { position: absolute; opacity: 0; pointer-events: none }
+.pack:has(input:checked) { border-color: var(--pick); box-shadow: 0 0 0 1.5px var(--pick) }
+.pack:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px }
+.pack b { font: 700 15px/1.25 var(--f-head) }
+.pack i { font-style: italic; color: var(--muted); font-size: 12.5px }
+.pack small { color: var(--muted); font-size: 12.5px; line-height: 1.35 }
+.pack .price { font: 700 16px/1.2 var(--f-head); color: var(--gold); margin-top: 4px }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px; gap: 4px }
+.seg label { text-align: center; border-radius: 9px; padding: 9px 4px; cursor: pointer; font-weight: 600; font-size: 14px }
+.seg input { position: absolute; opacity: 0; pointer-events: none }
+.seg label:has(input:checked) { background: var(--brand); color: var(--brand-ink) }
+:root[data-theme="dark"] .seg label:has(input:checked) { background: var(--gold); color: #1d130c }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .seg label:has(input:checked) { background: var(--gold); color: #1d130c } }
+.seg label:has(input:focus-visible) { outline: 3px solid var(--focus) }
+.hint { font-size: 13px; color: var(--muted); margin: 0 }
+
+.qty { display: flex; align-items: center; gap: 8px }
+.qty button { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 20px; cursor: pointer }
+.qty span { width: 36px; text-align: center; font: 700 18px var(--f-head) }
+
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }
+.field { display: grid; gap: 4px; font-size: 13.5px; font-weight: 600; min-width: 0 }
+.field.full { grid-column: 1 / -1 }
+.field input, .field select, .field textarea { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-weight: 400; font-size: 15px; width: 100% }
+.field textarea { resize: vertical; min-height: 64px }
+.field .err { color: var(--bad); font-weight: 500; font-size: 12.5px }
+.field input[aria-invalid="true"] { border-color: var(--bad) }
+
+.summary { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 12px }
+.summary .big { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.summary .big strong { font: 800 28px/1 var(--f-head); color: var(--ink) }
+.summary ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 14px }
+.pay { font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap }
+
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 11px; padding: 11px 14px; font-weight: 600; cursor: pointer; min-height: 46px }
+.btn:hover:not(:disabled) { border-color: var(--muted) }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); font-size: 16px }
+:root[data-theme="dark"] .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn.primary { background: var(--gold); border-color: var(--gold); color: #1d130c } }
+.btn.danger { color: var(--bad) }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+
+/* My gifts */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; min-width: 0 }
+.head { display: flex; gap: 10px; align-items: flex-start }
+.head > div { flex: 1; min-width: 0 }
+.head h3 { font-size: 18px; line-height: 1.25 }
+.sub { color: var(--muted); font-size: 13.5px; margin: 3px 0 0 }
+.pill { flex: none; font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 999px; background: var(--ok-soft); color: var(--ok) }
+.pill.paused { background: var(--gold-soft); color: var(--gold) }
+.pill.problem { background: var(--bad-soft); color: var(--bad) }
+.pill.off { background: var(--bg); color: var(--muted) }
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 }
+.facts div { background: var(--bg); border-radius: 10px; padding: 8px 10px; min-width: 0 }
+.facts dt { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted) }
+.facts dd { margin: 2px 0 0; font: 700 15px/1.25 var(--f-head) }
+.actions { display: flex; flex-wrap: wrap; gap: 8px }
+.actions .btn { flex: 1 1 auto; min-height: 42px; padding: 9px 12px; font-size: 14px }
+.alert { border-radius: 12px; padding: 12px 14px; font-size: 14px; background: var(--bad-soft); color: var(--bad) }
+.alert b { display: block }
+.edit { border: 1px dashed var(--muted); border-radius: 12px; padding: 14px; display: grid; gap: 12px }
+
+.deliveries { list-style: none; margin: 0; padding: 0; display: grid }
+.deliveries li { display: grid; grid-template-columns: 82px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px }
+.deliveries time { color: var(--muted); font-size: 13px }
+.deliveries .st { font-weight: 600 }
+.deliveries .st.done { color: var(--ok) }
+.deliveries .st.go { color: var(--gold) }
+.deliveries small { display: block; color: var(--muted); font-size: 12.5px }
+.deliveries .refund { color: var(--warn); }
+.track { display: flex; gap: 3px; margin-top: 6px }
+.track i { height: 4px; flex: 1; border-radius: 2px; background: var(--line) }
+.track i.on { background: var(--ok) }
+
+.msgs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.msgs li { background: var(--bg); border-radius: 10px; padding: 10px 12px; font-size: 14px }
+.msgs li.warn { background: var(--warn-soft) }
+.msgs li.bad { background: var(--bad-soft) }
+.msgs time { display: block; font-size: 12px; color: var(--muted) }
+.empty { text-align: center; color: var(--muted); padding: 32px 12px; border: 1.5px dashed var(--line); border-radius: 14px }
+
+.demo { border: 1.5px dashed var(--muted); border-radius: 14px; padding: 14px; display: grid; gap: 10px; margin-bottom: 24px }
+.demo h2 { font-size: 15px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap }
+.demo h2 span { font: 500 12px var(--f-body); color: var(--muted) }
+.demo .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px }
+.demo .btn { min-height: 42px; padding: 8px 10px; font-size: 13.5px }
+.demo .wide { grid-column: 1 / -1 }
+.clock { font-size: 12.5px; color: var(--muted); margin: 0 }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 11px 16px; border-radius: 11px; font-weight: 600; font-size: 14px; max-width: calc(100% - 32px); z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.25) }
+@media (max-width: 420px) { .packs { grid-template-columns: 1fr } .fields { grid-template-columns: 1fr } .facts { grid-template-columns: 1fr 1fr } .deliveries li { grid-template-columns: 1fr } }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <img id="logo" alt="888 Grocery">
+    <label class="cur" for="currency">Prices in
+      <select id="currency"></select>
+    </label>
+  </div>
+  <nav class="wrap tabs" role="tablist">
+    <button role="tab" data-tab="start" aria-selected="true">Start a gift</button>
+    <button role="tab" data-tab="mine" aria-selected="false">My gifts</button>
+  </nav>
+</header>
+
+<div class="wrap">
+  <main id="view"></main>
+  <section class="demo" aria-label="Demo controls">
+    <h2>Try it out <span>Demo controls. Not on the real site.</span></h2>
+    <div class="grid">
+      <button class="btn" data-demo="day">Skip ahead 1 day</button>
+      <button class="btn" data-demo="next">Skip to next delivery</button>
+      <button class="btn" data-demo="short">Next delivery: an item is out of stock</button>
+      <button class="btn" data-demo="decline1">Card declines once</button>
+      <button class="btn" data-demo="decline3">Card keeps declining</button>
+      <button class="btn" data-demo="reset">Start over</button>
+    </div>
+    <p class="clock" id="clock"></p>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/*__ENGINE__*/
+
+const PACKAGES = /*__PACKAGES__*/;
+document.getElementById('logo').src = '/*__LOGO__*/';
+
+const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+// Demo rates: pesos -> buyer's currency. The live site uses today's rate.
+const RATES = { NZD: 0.0283, AUD: 0.0262, USD: 0.0171, CAD: 0.0239, GBP: 0.0131, EUR: 0.0150, JPY: 2.62, KRW: 24.1, SGD: 0.0224, HKD: 0.133, QAR: 0.0624, AED: 0.0629, SAR: 0.0642, PHP: 1 };
+const CITIES = {
+  'Cebu City': { lat: 10.3157, lng: 123.8854, island: 'Cebu', prov: 'Cebu' },
+  'Talisay City': { lat: 10.2447, lng: 123.8494, island: 'Cebu', prov: 'Cebu' },
+  'Mandaue City': { lat: 10.3236, lng: 123.9223, island: 'Cebu', prov: 'Cebu' },
+  'Lapu-Lapu City': { lat: 10.3103, lng: 123.9494, island: 'Cebu', prov: 'Cebu' },
+  'Danao City': { lat: 10.5200, lng: 124.0270, island: 'Cebu', prov: 'Cebu' },
+  'Manila': { lat: 14.5995, lng: 120.9842, island: 'Luzon', prov: 'Metro Manila' },
+  'Quezon City': { lat: 14.6760, lng: 121.0437, island: 'Luzon', prov: 'Metro Manila' },
+  'Iloilo City': { lat: 10.7202, lng: 122.5621, island: 'Panay', prov: 'Iloilo' },
+  'Davao City': { lat: 7.0731, lng: 125.6128, island: 'Mindanao', prov: 'Davao del Sur' },
+};
+const EVERY = { week: 'Every week', '2weeks': 'Every 2 weeks', month: 'Every month' };
+const SHORT = { week: 'Weekly', '2weeks': '2 weeks', month: 'Monthly' };
+let trackSeq = 58210;
+const PER_MONTH = { week: 52 / 12, '2weeks': 26 / 12, month: 1 };
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const pkgOf = (id) => PACKAGES.find((p) => p.id === id);
+
+let cur = 'NZD';
+try { cur = localStorage.getItem('888-cur') || 'NZD'; } catch {}
+const money = (php) => new Intl.NumberFormat('en', { style: 'currency', currency: cur, maximumFractionDigits: ['JPY', 'KRW'].includes(cur) ? 0 : 2 }).format(php * RATES[cur]);
+const day = (t) => new Date(t).toLocaleDateString('en', { weekday: 'short', day: 'numeric', month: 'short' });
+const dayTime = (t) => new Date(t).toLocaleString('en', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+let d, subs, meta, msgs, offset, tab, draft, ui, card, shortage, seenEvents, botAt, seq;
+const now = () => Date.now() + offset;
+
+// Partner shops (made up). They answer by themselves in this demo.
+function makeWorld() {
+  const stock = {};
+  for (const p of PACKAGES) for (const i of p.items) stock[i.sku] = 9999;
+  const shop = (id, name, city, dlat = 0, dlng = 0) => ({ id, name, city, ...CITIES[city], lat: CITIES[city].lat + dlat, lng: CITIES[city].lng + dlng, stock: { ...stock } });
+  return [
+    { ...shop('hub', '888 Hub', 'Manila'), hub: true },
+    shop('colon', 'Colon St Grocery', 'Cebu City', -0.02, 0.015),
+    shop('talisay', 'Talisay Family Store', 'Talisay City', 0.003, 0.002),
+    shop('mandaue', 'Mandaue Sari-Sari Plus', 'Mandaue City'),
+    shop('qc', 'Quezon City Grocer', 'Quezon City'),
+    shop('iloilo', 'Jaro Mini Mart', 'Iloilo City', 0.02, 0),
+    shop('davao', 'Bajada Grocery', 'Davao City', 0.01, 0.01),
+  ];
+}
+
+function start() {
+  offset = 0; meta = {}; msgs = []; ui = {}; card = { fail: 0 }; shortage = null; seenEvents = 0; botAt = {}; seq = 0;
+  d = new Dispatcher({ packages: PACKAGES, shops: makeWorld(), config });
+  subs = new Subscriptions({ dispatcher: d, config, charge: () => (card.fail > 0 ? (card.fail--, { ok: false }) : { ok: true }) });
+  // An example gift that started 5 weeks ago, so "My gifts" has history.
+  const t0 = startOfDay(now() - 36 * DAY) + 10 * HOUR;
+  createSub({ packageId: '888-LOLOLOLA', qty: 1, every: 'month', startAt: t0,
+    name: 'Lourdes Bacalso', phone: '0927 555 0109', addr: 'Sitio Mahayahay, Brgy. Tabunok', city: 'Talisay City', note: 'Para kay Nanay, ingat palagi!' }, t0);
+  run(t0, now());
+  draft = { pack: '888-TIPID', every: 'month', qty: 1, name: 'Ana Reyes', phone: '0917 555 0188', addr: '24 Mabini St., Brgy. Lahug', city: 'Cebu City', note: '', start: isoDate(now() + 3 * DAY), errors: {} };
+  tab = 'mine';
+  render();
+}
+
+const startOfDay = (t) => { const x = new Date(t); x.setHours(0, 0, 0, 0); return x.getTime(); };
+const isoDate = (t) => { const x = new Date(t); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+
+function createSub(f, t) {
+  const id = `GIFT-${2041 + seq++}`;
+  const c = CITIES[f.city];
+  meta[id] = { name: f.name, phone: f.phone, addr: f.addr, city: f.city, note: f.note };
+  subs.create({ id, buyer: 'you', packageId: f.packageId, qty: f.qty, every: f.every, startAt: f.startAt,
+    address: { lat: c.lat + 0.004, lng: c.lng + 0.003, island: c.island } });
+  msg(t, id, 'ok', `Gift started: ${pkgOf(f.packageId).name} for ${f.name}, ${EVERY[f.every].toLowerCase()}. First delivery ${day(f.startAt)}.`);
+  return id;
+}
+
+function msg(at, sub, kind, text) { msgs.push({ at, sub, kind, text }); }
+
+// ---------- Time and the demo shops ----------
+function step(t) {
+  subs.tick(t);
+  if (shortage && !shortage.orderId) {
+    const o = [...d.orders.values()].at(-1);
+    if (o && o.paidAt === t && o.subscription) shortage.orderId = o.id;
+  }
+  d.tick(t);
+  bots(t);
+  readEvents();
+}
+function run(from, to) { for (let t = from; t <= to; t += 5 * MIN) step(t); }
+
+function bots(t) {
+  for (const o of d.offers) {
+    if (o.status !== 'pending' || t - o.sentAt < 3 * MIN) continue;
+    if (shortage?.orderId === o.orderId && o.missing.length) d.decline(o.id, t, 'shortage');
+    else if (d.accept(o.id, t, { commitToSource: true }).ok) botAt[o.orderId] = t;
+  }
+  for (const order of d.orders.values()) {
+    const shop = d.shops.get(order.shopId);
+    if (order.status === 'assigned') {
+      botAt[order.id] ??= t;
+      if (order.sourcing && !order.sourcing.confirmed) { if (t - botAt[order.id] >= HOUR) d.confirmSourced(order.id, shop.id, t); continue; }
+      if (t - botAt[order.id] >= 2 * HOUR) d.ship(order.id, shop.id, `${shop.hub ? 'LBC' : 'LLM'}-${++trackSeq}`, t);
+    } else if (order.status === 'shipped') {
+      const hours = shop.island === order.address.island ? 4 : 48;
+      if (t - order.shippedAt >= hours * HOUR) {
+        d.deliver(order.id, t);
+        if (order.subscription) msg(t, order.subscription, 'ok', `Delivered to ${meta[order.subscription].name}: ${pkgOf(order.packageId).name}.`);
+      }
+    }
+  }
+  if (shortage?.orderId) {
+    const o = d.orders.get(shortage.orderId);
+    if (o.dropped.length || o.status !== 'dispatching') {
+      for (const s of d.shops.values()) if (shortage.saved[s.id] != null) s.stock[shortage.sku] = shortage.saved[s.id];
+      shortage = null;
+    }
+  }
+}
+
+function readEvents() {
+  for (const e of d.events.slice(seenEvents)) {
+    const o = e.order && d.orders.get(e.order), subId = e.sub ?? o?.subscription;
+    if (!subId || !meta[subId]) continue;
+    const s = subs.get(subId), m = meta[subId];
+    if (e.type === 'sub_reminder') msg(e.at, subId, 'info', `Reminder: the next ${pkgOf(s.packageId).name} for ${m.name} is charged and sent on ${day(e.chargeAt)}. You can skip or change it before then.`);
+    if (e.type === 'sub_charged') { const ord = d.orders.get(e.order); msg(e.at, subId, 'ok', `Charged ${money(pkgOf(ord.packageId).price * ord.qty)} for delivery #${s.count} to ${m.name}. We're finding a store near them.`); }
+    if (e.type === 'sub_payment_failed' && e.paused) m.cardProblem = true;
+    if (e.type === 'sub_payment_failed') msg(e.at, subId, 'bad', e.paused
+      ? `We couldn't charge your card 3 times, so we paused this gift for ${m.name}. Update your card to restart it.`
+      : `We couldn't charge your card for ${m.name}'s gift. We'll try again tomorrow.`);
+    if (e.type === 'customer_notified') {
+      const names = o.dropped.map((x) => x.name);
+      msg(e.at, subId, 'warn', `${names.join(' and ')} ${names.length > 1 ? 'are' : 'is'} out of stock near ${m.name}. We're sending everything else now and refunded ${money(o.refund)} to your card.`);
+    }
+    if (e.type === 'shipped') msg(e.at, subId, 'ok', `On the way to ${m.name}. Tracking ${e.tracking}.`);
+  }
+  seenEvents = d.events.length;
+}
+
+// ---------- Start a gift ----------
+function startView() {
+  const p = pkgOf(draft.pack), each = p.price * draft.qty, er = draft.errors;
+  const startAt = new Date(draft.start + 'T10:00').getTime();
+  return `<section class="intro"><h1>Send groceries home, every week or month</h1>
+      <p>Pick a pack, and we deliver it to your family in the Philippines on a schedule. Skip, change, pause or cancel any time.</p></section>
+    <form id="start-form" novalidate class="step-list" style="display:grid;gap:22px">
+    <section class="step"><h2><span>1</span>Choose a pack</h2>
+      <div class="packs">${PACKAGES.map((x) => `<label class="pack"><input type="radio" name="pack" value="${x.id}" ${x.id === draft.pack ? 'checked' : ''}>
+        <b>${esc(x.name)}</b><i>${esc(x.fil)}</i><small>${esc(x.highlights.join(' · '))}</small><span class="price num">${money(x.price)}</span></label>`).join('')}</div>
+    </section>
+    <section class="step"><h2><span>2</span>How often</h2>
+      <div class="seg">${Object.entries(EVERY).map(([k, v]) => `<label><input type="radio" name="every" value="${k}" ${draft.every === k ? 'checked' : ''}>${v}</label>`).join('')}</div>
+      <div class="qty"><button type="button" data-qty="-1" aria-label="Fewer packs">−</button><span class="num" aria-live="polite">${draft.qty}</span><button type="button" data-qty="1" aria-label="More packs">+</button><span class="hint" style="width:auto">pack${draft.qty > 1 ? 's' : ''} each time</span></div>
+    </section>
+    <section class="step"><h2><span>3</span>Who gets it</h2>
+      <p class="hint">Example details are filled in. Change them to your family's.</p>
+      <div class="fields">
+        <label class="field">Name<input id="f-name" name="name" value="${esc(draft.name)}" autocomplete="off" ${er.name ? 'aria-invalid="true"' : ''}>${er.name ? `<span class="err">${er.name}</span>` : ''}</label>
+        <label class="field">Mobile number<input id="f-phone" name="phone" value="${esc(draft.phone)}" inputmode="tel" autocomplete="off" ${er.phone ? 'aria-invalid="true"' : ''}>${er.phone ? `<span class="err">${er.phone}</span>` : ''}</label>
+        <label class="field full">Street, barangay<input id="f-addr" name="addr" value="${esc(draft.addr)}" autocomplete="off" ${er.addr ? 'aria-invalid="true"' : ''}>${er.addr ? `<span class="err">${er.addr}</span>` : ''}</label>
+        <label class="field">City<select id="f-city" name="city">${Object.entries(CITIES).map(([c, v]) => `<option value="${c}" ${c === draft.city ? 'selected' : ''}>${c}, ${v.prov}</option>`).join('')}</select></label>
+        <label class="field">First delivery<input id="f-start" name="start" type="date" min="${isoDate(now() + DAY)}" value="${draft.start}" ${er.start ? 'aria-invalid="true"' : ''}>${er.start ? `<span class="err">${er.start}</span>` : ''}</label>
+        <label class="field full">Gift message (optional)<textarea id="f-note" name="note" maxlength="200" placeholder="e.g. Para sa inyo, Nay. Mahal ko kayo!">${esc(draft.note)}</textarea></label>
+      </div>
+    </section>
+    <section class="summary" aria-label="Summary">
+      <div class="big"><span>Each delivery</span><strong class="num">${money(each)}</strong></div>
+      <ul>
+        <li>${esc(p.name)}${draft.qty > 1 ? ` × ${draft.qty}` : ''}, ${EVERY[draft.every].toLowerCase()} to ${esc(draft.name || 'your family')} in ${esc(draft.city)}</li>
+        <li>About <b class="num">${money(each * PER_MONTH[draft.every])}</b> a month</li>
+        <li>First charge and delivery: ${isNaN(startAt) ? '–' : day(startAt)}</li>
+        <li>We remind you ${config.subscriptions.reminderDays} days before each charge</li>
+        <li>If an item is out of stock near your family, we send the rest and refund that item</li>
+      </ul>
+      <div class="pay"><span>Card: Visa ending 4242 (example)</span><span>Delivered in the Philippines only</span></div>
+      <button class="btn primary" type="submit">Start this gift</button>
+    </section>
+    </form>`;
+}
+
+function validate() {
+  const e = {};
+  if (!draft.name.trim()) e.name = 'Add the name of the person receiving it.';
+  if (!/^(\+?63|0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}$/.test(draft.phone.trim())) e.phone = 'Use a Philippine mobile number, like 0917 123 4567.';
+  if (!draft.addr.trim()) e.addr = 'Add the street and barangay.';
+  const t = new Date(draft.start + 'T10:00').getTime();
+  if (isNaN(t) || t < startOfDay(now() + DAY)) e.start = 'Pick a date from tomorrow on.';
+  return e;
+}
+
+// ---------- My gifts ----------
+function statusOf(s) {
+  if (s.status === 'cancelled') return ['off', 'Cancelled'];
+  if (s.status === 'paused') return meta[s.id].cardProblem ? ['problem', 'Card problem'] : ['paused', 'Paused'];
+  return ['', 'Active'];
+}
+
+function deliveryRow(id) {
+  const o = d.orders.get(id), shop = d.shops.get(o.shopId);
+  const stage = o.status === 'delivered' ? 4 : o.status === 'shipped' ? 3 : o.status === 'assigned' ? 2 : 1;
+  const text = o.status === 'delivered' ? 'Delivered'
+    : o.status === 'shipped' ? `On the way · ${esc(o.tracking)}`
+    : o.status === 'assigned' ? (o.sourcing && !o.sourcing.confirmed ? 'Store is getting the last items' : 'Being packed')
+    : 'Finding a store near them';
+  const from = shop ? (shop.hub ? 'Sent from the 888 hub in Manila' : `Packed by a partner store in ${esc(shop.city)}`) : '';
+  return `<li><time>${day(o.paidAt)}</time><div>
+    <span class="st ${stage === 4 ? 'done' : 'go'}">${text}</span>
+    <small>${esc(pkgOf(o.packageId).name)}${o.qty > 1 ? ` × ${o.qty}` : ''}${from ? ` · ${from}` : ''}</small>
+    ${o.dropped.length ? `<small class="refund">${o.dropped.map((x) => esc(x.name)).join(', ')} was out of stock: ${money(o.refund)} refunded</small>` : ''}
+    <div class="track" aria-hidden="true">${[1, 2, 3, 4].map((i) => `<i class="${i <= stage ? 'on' : ''}"></i>`).join('')}</div></div></li>`;
+}
+
+function editor(s) {
+  const e = ui.edit;
+  return `<div class="edit"><h4>Change from the next delivery</h4>
+    <div class="fields">
+      <label class="field full">Pack<select id="e-pack">${PACKAGES.map((x) => `<option value="${x.id}" ${x.id === e.packageId ? 'selected' : ''}>${esc(x.name)} · ${money(x.price)}</option>`).join('')}</select></label>
+      <label class="field">How often<select id="e-every">${Object.entries(EVERY).map(([k, v]) => `<option value="${k}" ${k === e.every ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="field">Packs each time<select id="e-qty">${[1, 2, 3, 4, 5].map((n) => `<option ${n === e.qty ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="field full">Street, barangay<input id="e-addr" value="${esc(e.addr)}" autocomplete="off"></label>
+      <label class="field full">City<select id="e-city">${Object.keys(CITIES).map((c) => `<option ${c === e.city ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    </div>
+    <div class="actions"><button class="btn primary" data-act="save" data-id="${s.id}">Save changes</button><button class="btn" data-act="close">Close</button></div></div>`;
+}
+
+function giftCard(s) {
+  const m = meta[s.id], p = pkgOf(s.packageId), [cls, label] = statusOf(s);
+  const live = s.status !== 'cancelled';
+  const due = s.retryAt ?? s.nextAt;
+  const hist = [...s.history].reverse();
+  return `<article class="card" id="card-${s.id}">
+    <div class="head"><div><h3>${esc(p.name)}${s.qty > 1 ? ` × ${s.qty}` : ''}</h3>
+      <p class="sub">To ${esc(m.name)} · ${esc(m.addr)}, ${esc(m.city)}</p></div><span class="pill ${cls}">${label}</span></div>
+    ${m.cardProblem && s.status === 'paused' ? `<div class="alert"><b>We couldn't charge your card</b>Update your card to restart deliveries. Nothing was sent while paused, and you won't be charged for missed ones.</div>` : ''}
+    <dl class="facts">
+      <div><dt>Each delivery</dt><dd class="num">${money(p.price * s.qty)}</dd></div>
+      <div><dt>How often</dt><dd>${SHORT[s.every]}</dd></div>
+      <div><dt>${s.retryAt ? 'Retrying card' : 'Next'}</dt><dd>${s.status === 'active' ? day(due) : s.status === 'paused' ? 'Paused' : '–'}</dd></div>
+    </dl>
+    ${live ? `<div class="actions">
+      ${s.status === 'active' ? `<button class="btn" data-act="skip" data-id="${s.id}">Skip ${day(s.nextAt)}</button>` : ''}
+      <button class="btn" data-act="change" data-id="${s.id}">Change</button>
+      ${s.status === 'active' ? `<button class="btn" data-act="pause" data-id="${s.id}">Pause</button>`
+        : m.cardProblem ? `<button class="btn primary" data-act="card" data-id="${s.id}">Update card and restart</button>`
+        : `<button class="btn" data-act="resume" data-id="${s.id}">Resume</button>`}
+      <button class="btn danger" data-act="cancel" data-id="${s.id}">${ui.confirmCancel === s.id ? 'Tap again to cancel for good' : 'Cancel'}</button>
+    </div>` : ''}
+    ${ui.edit?.id === s.id ? editor(s) : ''}
+    ${m.note ? `<p class="hint">Gift message: “${esc(m.note)}”</p>` : ''}
+    <div><h4 style="font-size:15px">Deliveries</h4>${hist.length ? `<ul class="deliveries">${hist.map(deliveryRow).join('')}</ul>` : '<p class="hint">No deliveries yet.</p>'}</div>
+  </article>`;
+}
+
+function mineView() {
+  const list = [...subs.subs.values()].reverse();
+  const recent = msgs.slice(-5).reverse();
+  return `${recent.length ? `<section class="card"><h3>Messages</h3><ul class="msgs">${recent.map((x) =>
+      `<li class="${x.kind === 'warn' ? 'warn' : x.kind === 'bad' ? 'bad' : ''}"><time>${dayTime(x.at)}</time>${esc(x.text)}</li>`).join('')}</ul></section>` : ''}
+    ${list.length ? list.map(giftCard).join('') : `<div class="empty"><b>No gifts yet</b><br>Start one and it shows here.</div>`}`;
+}
+
+// ---------- Render ----------
+function render() {
+  const a = document.activeElement, fid = a?.id, sel = a?.selectionStart;
+  for (const b of document.querySelectorAll('.tabs button')) {
+    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    if (b.dataset.tab === 'mine') { const n = [...subs.subs.values()].filter((s) => s.status !== 'cancelled').length; b.innerHTML = `My gifts${n ? `<span class="badge num">${n}</span>` : ''}`; }
+  }
+  document.getElementById('view').innerHTML = tab === 'start' ? startView() : mineView();
+  document.getElementById('clock').textContent = `Demo time: ${dayTime(now())}${offset ? ` (skipped ahead ${Math.round(offset / DAY)} days)` : ''}. Partner stores in this demo answer by themselves. Prices use example exchange rates; the live site uses today's rate.`;
+  if (fid) { const el = document.getElementById(fid); if (el) { el.focus(); try { if (sel != null) el.setSelectionRange(sel, sel); } catch {} } }
+}
+
+let toastTimer;
+function toast(t) { const el = document.getElementById('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.hidden = true; }, 3400); }
+
+function skipTo(target) { const from = now(); offset += target - from; run(from + 5 * MIN, target); }
+
+// ---------- Events ----------
+const sel = document.getElementById('currency');
+sel.innerHTML = Object.keys(RATES).map((c) => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('');
+sel.addEventListener('change', () => { cur = sel.value; try { localStorage.setItem('888-cur', cur); } catch {} render(); });
+
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (t.form?.id === 'start-form' && ['name', 'phone', 'addr', 'note'].includes(t.name)) {
+    draft[t.name] = t.value; delete draft.errors[t.name];
+    if (t.name === 'name') render();
+  }
+  if (t.id === 'e-addr') ui.edit.addr = t.value;
+});
+document.addEventListener('change', (ev) => {
+  const t = ev.target;
+  if (t.form?.id === 'start-form') {
+    if (t.name === 'pack') draft.pack = t.value;
+    if (t.name === 'every') draft.every = t.value;
+    if (t.name === 'city') draft.city = t.value;
+    if (t.name === 'start') { draft.start = t.value; delete draft.errors.start; }
+    render();
+  }
+  if (t.id === 'e-pack') ui.edit.packageId = t.value;
+  if (t.id === 'e-every') ui.edit.every = t.value;
+  if (t.id === 'e-qty') ui.edit.qty = Number(t.value);
+  if (t.id === 'e-city') ui.edit.city = t.value;
+});
+document.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  draft.errors = validate();
+  if (Object.keys(draft.errors).length) { render(); document.querySelector('[aria-invalid="true"]')?.focus(); return; }
+  const startAt = new Date(draft.start + 'T10:00').getTime();
+  createSub({ packageId: draft.pack, qty: draft.qty, every: draft.every, startAt, name: draft.name.trim(), phone: draft.phone.trim(), addr: draft.addr.trim(), city: draft.city, note: draft.note.trim() }, now());
+  toast(`Gift started. First delivery ${day(startAt)}.`);
+  tab = 'mine'; render(); window.scrollTo(0, 0);
+});
+
+document.addEventListener('click', (ev) => {
+  const b = ev.target.closest('button'); if (!b || (b.type === 'submit' && b.form)) return;
+  if (b.dataset.tab) { tab = b.dataset.tab; render(); window.scrollTo(0, 0); return; }
+  if (b.dataset.qty) { draft.qty = Math.min(5, Math.max(1, draft.qty + Number(b.dataset.qty))); render(); return; }
+  const id = b.dataset.id, act = b.dataset.act, t = now(), s = id && subs.get(id);
+  if (act !== 'cancel') ui.confirmCancel = null;
+  if (act === 'skip') { const was = s.nextAt; subs.skipNext(id, t); msg(t, id, 'info', `Skipped the ${day(was)} delivery. Next one: ${day(s.nextAt)}.`); toast(`Skipped. Next delivery ${day(s.nextAt)}.`); }
+  if (act === 'pause') { subs.pause(id, t); msg(t, id, 'info', `Paused the gift for ${meta[id].name}. Nothing is charged or sent until you resume.`); toast('Paused'); }
+  if (act === 'resume') { subs.resume(id, t); msg(t, id, 'ok', `Resumed. Next delivery ${day(s.nextAt)}.`); toast(`Resumed. Next delivery ${day(s.nextAt)}.`); }
+  if (act === 'card') { card.fail = 0; meta[id].cardProblem = false; subs.resume(id, t); msg(t, id, 'ok', `Card updated and gift restarted. Next delivery ${day(s.nextAt)}.`); toast('Card updated. Gift restarted.'); }
+  if (act === 'cancel') {
+    if (ui.confirmCancel !== id) { ui.confirmCancel = id; render(); return; }
+    subs.cancel(id, t); ui.confirmCancel = null; msg(t, id, 'info', `Cancelled the gift for ${meta[id].name}. Deliveries already on the way still arrive.`); toast('Gift cancelled');
+  }
+  if (act === 'change') { const m = meta[id]; ui.edit = { id, packageId: s.packageId, every: s.every, qty: s.qty, addr: m.addr, city: m.city }; }
+  if (act === 'close') ui.edit = null;
+  if (act === 'save') {
+    const e = ui.edit, c = CITIES[e.city];
+    subs.change(id, { packageId: e.packageId, every: e.every, qty: e.qty, address: { lat: c.lat + 0.004, lng: c.lng + 0.003, island: c.island } }, t);
+    Object.assign(meta[id], { addr: e.addr.trim() || meta[id].addr, city: e.city });
+    msg(t, id, 'ok', `Changed: ${pkgOf(e.packageId).name}${e.qty > 1 ? ` × ${e.qty}` : ''}, ${EVERY[e.every].toLowerCase()}, to ${e.city}. Applies from ${day(s.nextAt)}.`);
+    ui.edit = null; toast('Saved. Applies from the next delivery.');
+  }
+  const demo = b.dataset.demo;
+  if (demo === 'reset') { start(); toast('Started over'); return; }
+  if (demo === 'day') { skipTo(now() + DAY); toast('Skipped ahead 1 day'); tab = 'mine'; }
+  if (demo === 'next') {
+    const active = [...subs.subs.values()].filter((x) => x.status === 'active');
+    if (!active.length) { toast('No active gift to skip to.'); }
+    else {
+      const target = Math.min(...active.map((x) => x.retryAt ?? x.nextAt));
+      skipTo(Math.max(now() + 5 * MIN, target + 8 * HOUR)); toast('Skipped to the next delivery'); tab = 'mine';
+    }
+  }
+  if (demo === 'short') {
+    const next = [...subs.subs.values()].filter((x) => x.status === 'active').sort((a, z) => a.nextAt - z.nextAt)[0];
+    if (!next) toast('Start or resume a gift first.');
+    else {
+      const p = pkgOf(next.packageId), total = p.items.reduce((t2, i) => t2 + i.qty * i.unit, 0);
+      const item = [...p.items].sort((a, z) => Math.abs(a.qty * a.unit / total - 0.1) - Math.abs(z.qty * z.unit / total - 0.1))[0];
+      shortage = { sku: item.sku, saved: {}, orderId: null };
+      for (const sh of d.shops.values()) if (!sh.hub) { shortage.saved[sh.id] = sh.stock[item.sku]; sh.stock[item.sku] = 0; }
+      toast(`${item.name} is now out of stock at every partner store. Skip to the next delivery to see what happens.`);
+    }
+  }
+  if (demo === 'decline1') { card.fail = 1; toast('The next charge will be declined once, then work on the retry.'); }
+  if (demo === 'decline3') { card.fail = 99; toast('Every charge will be declined until you update the card.'); }
+  render();
+});
+
+setInterval(() => { const n = d.events.length, m = msgs.length; step(now()); if (d.events.length !== n || msgs.length !== m) { if (tab === 'mine') render(); } }, 1000);
+start();
+</script>
