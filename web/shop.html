@@ -67,7 +67,7 @@
 <div class="wrap">
   <button class="soundbar" id="soundbar" hidden>
     <b>Turn on order alarm</b>
-    <span>Tap once so this phone can ring, buzz and stay awake when a new order comes in.</span>
+    <span>Tap once so this phone can ring, buzz and stay awake when a new order comes in. Turn the media volume up: the alarm plays like music, so it still rings on silent.</span>
   </button>
   <main id="view"><div class="empty"><b>Loading…</b></div></main>
 </div>
@@ -112,23 +112,39 @@ function take(view) { V = view; skew = view.now - Date.now(); render(); checkNew
 // alarm" once. Then every new offer rings (repeating ding-ding), buzzes,
 // flashes the screen red, and shows a phone notification if the page is in
 // the background. It rings until the order is opened.
-let audio = null, alarmTimer = null, wakeLock = null, seenOffers = null, ringing = [];
+let alarmTimer = null, wakeLock = null, seenOffers = null, ringing = [], bell = null;
 const soundbar = document.getElementById('soundbar');
+// The ding is played as media (like music or a video), not as a web sound
+// effect: iPhones mute web sound effects on silent, but media still plays on
+// silent as long as the media volume is up.
+function makeBell() {
+  const rate = 22050, notes = [[1318.5, 0], [1046.5, 0.22], [1318.5, 0.6], [1046.5, 0.82]], len = Math.floor(rate * 1.1);
+  const pcm = new Int16Array(len);
+  for (const [f, at] of notes) {
+    const s0 = Math.floor(at * rate), n = Math.floor(0.2 * rate);
+    for (let i = 0; i < n && s0 + i < len; i++) {
+      const env = Math.min(1, i / (0.01 * rate)) * Math.exp(-i / (0.06 * rate));
+      pcm[s0 + i] += Math.round(26000 * env * Math.sin(2 * Math.PI * f * i / rate));
+    }
+  }
+  const buf = new ArrayBuffer(44 + len * 2), v = new DataView(buf), w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + len * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, len * 2, true);
+  pcm.forEach((x, i) => v.setInt16(44 + i * 2, x, true));
+  const a = new Audio(URL.createObjectURL(new Blob([buf], { type: 'audio/wav' })));
+  a.preload = 'auto'; a.volume = 1;
+  return a;
+}
 function ding() {
-  if (!audio) return;
-  const t = audio.currentTime;
-  [[1318.5, 0], [1046.5, 0.22], [1318.5, 0.6], [1046.5, 0.82]].forEach(([f, at]) => {
-    const o = audio.createOscillator(), g = audio.createGain();
-    o.type = 'triangle'; o.frequency.value = f;
-    g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(0.9, t + at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.2);
-    o.connect(g).connect(audio.destination); o.start(t + at); o.stop(t + at + 0.22);
-  });
+  if (!bell) return;
+  try { bell.currentTime = 0; bell.play().catch(() => {}); } catch {}
 }
 async function keepAwake() {
   try { if ('wakeLock' in navigator && !wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch {}
 }
 async function enableAlarm() {
-  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); await audio.resume(); ding(); } catch {}
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {} // newer iPhones: play even on silent
+  try { bell = bell || makeBell(); await bell.play(); } catch {}
   try { if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); } catch {}
   keepAwake();
   try { localStorage.setItem('888-alarm', 'on'); } catch {}
