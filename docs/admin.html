@@ -52,6 +52,7 @@ tr:last-child td { border-bottom: 0 } .r { text-align: right }
 .rule label { font-weight: 600 } .rule small { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px }
 .rule input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 100%; text-align: right }
 .login { max-width: 420px; margin: 40px auto }
+.phone { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 170px; font-size: 14px }
 @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr) } .two { grid-template-columns: 1fr } .rules { grid-template-columns: 1fr } }
 </style>
 </head>
@@ -77,6 +78,8 @@ const when = new Intl.DateTimeFormat('en-PH', { weekday: 'short', hour: 'numeric
 const left = (ms) => { const n = ms < 0, a = Math.abs(ms), h = Math.floor(a / HOUR), m = Math.floor((a % HOUR) / MIN); return (n ? '-' : '') + (h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`); };
 const STAGE = { find: 'Finding shop', buy: 'Buying items', pack: 'Packing', way: 'On the way', done: 'Delivered', hub: '888 hub' };
 
+let sms = null, smsLoading = false;
+async function loadSms() { smsLoading = true; try { sms = (await call('GET', null, '?sms=1')).sms; if (tab === 'shops') render(); } catch {} smsLoading = false; }
 let KEY = null, V = null, tab = 'overview', filter = 'all', sel = null, events = {}, confirmKey = null, newLink = null, busy = false;
 try { KEY = localStorage.getItem('888-admin-key'); } catch {}
 
@@ -194,6 +197,7 @@ function ordersView() {
 }
 
 function shopsView() {
+  if (sms === null && !smsLoading) loadSms();
   const shops = V.shops.filter((s) => !s.hub);
   return `${newLink ? `<section class="card"><h2>Shop link for ${esc(newLink.name)}</h2>
       <p class="note">Send this link to the shop owner by text or chat, or open it on your own phone to test. It works like a password, so share it only with them. It is shown once; "Get shop link" makes a new one any time and the old one stops working.</p>
@@ -201,7 +205,12 @@ function shopsView() {
     <section class="card"><h2>Partner shops</h2>
     ${shops.length ? `<div class="table"><table><thead><tr><th>Shop</th><th>Status</th><th>Strikes</th><th>Accepts</th><th class="r">Open</th><th class="r">Owed</th></tr></thead><tbody>
       ${shops.map((s) => `<tr><td><b>${esc(s.name)}</b><br><span class="note">${esc(s.city)}${s.phone ? ' · ' + esc(s.phone) : ''} · ${s.stocked} items stocked</span>
-          <div class="acts" style="margin-top:8px">
+          <div class="acts" style="margin-top:8px;align-items:center">
+            <input class="phone" id="ph-${esc(s.id)}" value="${esc(s.phone)}" placeholder="Mobile for order texts" inputmode="tel" aria-label="Mobile number for ${esc(s.name)}">
+            <button class="btn small" data-act="setPhone" data-shop="${esc(s.id)}">Save mobile</button>
+            ${s.phone ? `<button class="btn small" data-act="testSms" data-shop="${esc(s.id)}">Test text</button>` : ''}
+          </div>
+          <div class="acts" style="margin-top:6px">
           <button class="btn small primary" data-act="newLink" data-shop="${esc(s.id)}">${confirmKey === 'link' + s.id ? 'Tap again: make new link' : 'Get shop link'}</button>
           ${s.strikes ? `<button class="btn small" data-act="clearStrikes" data-shop="${esc(s.id)}">Clear strikes</button>` : ''}
           ${s.active ? `<button class="btn small" data-act="pauseShop" data-shop="${esc(s.id)}">Pause</button>` : `<button class="btn small" data-act="reinstate" data-shop="${esc(s.id)}">Reinstate</button>`}
@@ -216,7 +225,13 @@ function shopsView() {
         <label class="field">Province<input id="s-prov" required placeholder="e.g. Cebu"></label>
         <label class="field">Mobile<input id="s-phone" inputmode="tel" placeholder="0917 123 4567"></label>
         <button class="btn primary">Add shop</button></form>
-      <p class="note">The shop is placed on the map by its city. They then fill in their stock from their own screen.</p></section>`;
+      <p class="note">The shop is placed on the map by its city. They then fill in their stock from their own screen.</p></section>
+    <section class="card"><h2>Texts sent</h2>
+      ${sms === null ? '<p class="note">Loading…</p>' : sms.length ? `<div class="table"><table><thead><tr><th>When</th><th>To</th><th>Message</th><th>Result</th></tr></thead><tbody>
+        ${sms.map((x) => `<tr><td class="num">${when.format(new Date(x.at))}</td><td class="num">${esc(x.to_number)}</td><td>${esc(x.message)}</td>
+        <td><span class="pill ${x.ok ? 'p-done' : 'p-bad'}">${x.ok ? 'Sent' : 'Not sent'}</span>${x.ok ? '' : `<br><span class="note">${esc(x.response.slice(0, 120))}</span>`}</td></tr>`).join('')}</tbody></table></div>`
+        : '<p class="note">No texts yet. Each new offer texts the shop, once the shop has a Philippine mobile number and your Semaphore account has credit.</p>'}
+    </section>`;
 }
 
 function payoutsView() {
@@ -245,6 +260,10 @@ function rulesView() {
       <label class="field">Packing fee per order (₱)<input id="p-fee" type="number" min="0" max="4999" value="${V.payout?.packingFee ?? 50}"></label>
       <button class="btn primary">Save shop pay</button></form>
       <p class="note">Applies to new orders. Example: a ₱1,400 order pays the shop ${peso(1400 * (V.payout?.share ?? 0.7) + (V.payout?.packingFee ?? 50))}.</p></section>
+    <section class="card"><h2>Texts to you</h2><form class="form" id="ownerform">
+      <label class="field">Your Philippine mobile for alerts<input id="o-phone" inputmode="tel" value="${esc(V.ownerPhone || '')}" placeholder="0917 123 4567"></label>
+      <button class="btn primary">Save</button>${V.ownerPhone ? '<button class="btn" type="button" data-act="testSms">Send me a test text</button>' : ''}</form>
+      <p class="note">You'll get a text when the hub must send an order, a buyer needs asking about missing items, a Shopify order needs you, or a shop is paused. Texts go through Semaphore, which only sends to Philippine numbers. Leave it empty for no texts.</p></section>
     <section class="card"><h2>Dispatch rules</h2><div class="rules">${RULES.map(([k, l, h]) => `<div class="rule"><label for="r-${k}">${l}</label>
       <input id="r-${k}" data-rule="${k}" type="number" min="0" max="1000" value="${get(k)}"><small>${h}</small></div>`).join('')}</div>
     <p class="note">Changes apply to new offers straight away.</p></section>
@@ -281,6 +300,8 @@ document.addEventListener('click', async (ev) => {
   if (a === 'hubship') await act({ act: 'hubship', orderId: id, tracking: 'HUB' }, 'Marked as shipped from the hub');
   if (a === 'deliver') await act({ act: 'deliver', orderId: id }, 'Marked as delivered');
   if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');
+  if (a === 'setPhone') { await act({ act: 'setPhone', shopId: shop, phone: document.getElementById(`ph-${shop}`).value }, 'Mobile saved'); }
+  if (a === 'testSms') { const r = await act({ act: 'testSms', shopId: shop }); if (r?.sent) toast('Test text sent'); sms = null; if (tab === 'shops') loadSms(); }
   if (a === 'buyerChoice') { const r = await act({ act: 'buyerChoice', orderId: id, choice: b.dataset.choice }); if (r?.ok) toast(r.followUp ? `Follow-up order ${r.followUp} is going out` : `Recorded. Refund ${peso(r.refund)} in Shopify.`); }
   if (a === 'pauseShop') await act({ act: 'pauseShop', shopId: shop }, 'Shop paused');
   if (a === 'reinstate') await act({ act: 'reinstate', shopId: shop }, 'Shop reinstated, strikes cleared');
@@ -297,6 +318,7 @@ document.addEventListener('submit', async (ev) => {
     const r = await act({ act: 'addShop', name: v('s-name'), city: v('s-city'), province: v('s-prov'), phone: v('s-phone') });
     if (r?.link) { newLink = { name: v('s-name'), url: `${SHOP_PAGE}#t=${r.link}` }; toast('Shop added. Send them the link.'); render(); }
   }
+  if (f.id === 'ownerform') await act({ act: 'ownerPhone', phone: document.getElementById('o-phone').value }, 'Saved');
   if (f.id === 'payout') await act({ act: 'payoutRule', share: Number(document.getElementById('p-share').value) / 100, packingFee: Number(document.getElementById('p-fee').value) }, 'Shop pay saved');
 });
 document.addEventListener('change', async (ev) => { const t = ev.target; if (t.dataset.rule) await act({ act: 'rule', path: t.dataset.rule, value: Number(t.value) }, 'Rule saved'); });

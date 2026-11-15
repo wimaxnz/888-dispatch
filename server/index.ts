@@ -11,6 +11,7 @@ import { fromShopify, verifyShopify, PAYOUT } from './shopify.js';
 import { buildCatalog } from './catalog.js';
 import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
+import { normalizePH, textsFor, manualText } from './sms.js';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const catalog = buildCatalog();
@@ -40,6 +41,30 @@ function freshState() {
   return snapshot(d, { manual: [], payments: [], seenShopify: [], payout: { ...PAYOUT } });
 }
 
+// ---------- Text messages (Semaphore) ----------
+async function sendTexts(texts: any[]) {
+  if (!texts.length) return [];
+  const key = await secret('semaphore_api_key');
+  const sender = await secret('semaphore_sender');
+  const results = [];
+  for (const t of texts.slice(0, 20)) {
+    let ok = false, response = '';
+    if (!key || key.startsWith('PASTE-')) response = 'No Semaphore key yet';
+    else {
+      try {
+        const form = new URLSearchParams({ apikey: key, number: t.to, message: t.message });
+        if (sender) form.set('sendername', sender);
+        const res = await fetch('https://api.semaphore.co/api/v4/messages', { method: 'POST', body: form });
+        response = (await res.text()).slice(0, 500);
+        ok = res.ok && !/insufficient|invalid|error|failed/i.test(response);
+      } catch (e) { response = String(e).slice(0, 200); }
+    }
+    results.push({ ...t, ok, response });
+  }
+  await db.from('sms_log').insert(results.map((r) => ({ to_number: r.to, kind: r.kind, ref: r.ref ?? null, message: r.message, ok: r.ok, response: r.response })));
+  return results;
+}
+
 type Ctx = { d: any; extra: any; now: number };
 // Load, change, save — with a version check so two requests never overwrite
 // each other (that is what makes "first shop to accept wins" safe).
@@ -66,6 +91,7 @@ async function withState<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
       await db.from('event_log').insert(fresh.map((e: any) => ({
         at: new Date(e.at).toISOString(), type: e.type, order_id: e.order ?? null, shop_id: e.shop ?? null, data: e,
       })));
+      try { await sendTexts(textsFor(fresh, d, { ownerPhone: extra.ownerPhone })); } catch (e) { console.error('sms', e); }
     }
     return result;
   }
@@ -89,13 +115,14 @@ async function onShopify(req: Request) {
   if (dupe) return json({ ok: true, duplicate: true }); // Shopify retries: already have it
   const result = await withState(({ d, extra }) => {
     const r: any = fromShopify(o, catalog, extra.payout ?? PAYOUT);
-    if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason }; }
+    if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, extra.ownerPhone) }; }
     if (r.skip) return { skipped: r.skip };
     if (d.orders.has(r.order.id)) return { exists: r.order.id };
     d.packages.set(r.package.id, r.package);
     d.placeOrder(r.order);
     return { dispatched: r.order.id };
   });
+  if ((result as any).ownerText) { try { await sendTexts([(result as any).ownerText]); } catch (e) { console.error('sms', e); } delete (result as any).ownerText; }
   await db.from('shopify_orders').update({ result }).eq('shopify_id', o.id);
   return json({ ok: true, ...result });
 }
@@ -143,6 +170,10 @@ const RULE_PATHS = ['rings.localKm', 'rings.nearbyKm', 'waveSize', 'offerMinutes
 async function onAdmin(req: Request, url: URL) {
   if (!same(req.headers.get('x-admin-key'), await secret('admin_key'))) return json({ error: 'Wrong admin key' }, 403);
   if (req.method === 'GET') {
+    if (url.searchParams.get('sms')) {
+      const { data } = await db.from('sms_log').select('at, to_number, kind, ref, message, ok, response').order('id', { ascending: false }).limit(30);
+      return json({ sms: data ?? [] });
+    }
     if (url.searchParams.get('events')) {
       const { data } = await db.from('event_log').select('at, type, shop_id, data').eq('order_id', url.searchParams.get('events')).order('id');
       return json({ events: data ?? [] });
@@ -183,6 +214,22 @@ async function onAdmin(req: Request, url: URL) {
         extra.payments = [...(extra.payments ?? []), { at: now, shop: body.shopId, orders: list.length, amount }];
         r = { ok: true, amount }; break;
       }
+      case 'setPhone': {
+        if (!s) { r = { ok: false }; break; }
+        const phone = String(body.phone ?? '').trim().slice(0, 20);
+        if (phone && !normalizePH(phone)) { r = { ok: false, reason: 'Use a Philippine mobile number, like 0917 123 4567.' }; break; }
+        s.phone = phone; r = { ok: true }; break;
+      }
+      case 'ownerPhone': {
+        const phone = String(body.phone ?? '').trim().slice(0, 20);
+        if (phone && !normalizePH(phone)) { r = { ok: false, reason: 'Texts can only go to Philippine mobile numbers, like 0917 123 4567.' }; break; }
+        extra.ownerPhone = phone; r = { ok: true }; break;
+      }
+      case 'testSms': {
+        const to = normalizePH(s ? s.phone : extra.ownerPhone);
+        if (!to) { r = { ok: false, reason: 'Add a Philippine mobile number first.' }; break; }
+        r = { ok: true, test: { to, kind: 'test', ref: s?.id ?? 'owner', message: `888 test: order alerts by text are working${s ? ' for ' + String(s.name).slice(0, 40) : ''}. Salamat!` } }; break;
+      }
       case 'buyerChoice': r = o ? d.buyerChoice(o.id, body.choice === 'later' ? 'later' : 'refund', now) : { ok: false }; break;
       case 'manualDone': extra.manual = (extra.manual ?? []).map((m: any) => m.id === body.id ? { ...m, status: 'done', doneAt: now } : m); break;
       case 'rule': {
@@ -199,6 +246,7 @@ async function onAdmin(req: Request, url: URL) {
     }
     return { result: r, view: adminView(d, extra, now) };
   });
+  if (out.result?.test) { const [t] = await sendTexts([out.result.test]); out.result = t.ok ? { ok: true, sent: true } : { ok: false, reason: `Semaphore didn't send it: ${t.response.slice(0, 160)}` }; }
   if (link && out.result?.ok) {
     await db.from('shop_links').delete().eq('shop_id', out.result.shopId);
     await db.from('shop_links').insert({ token_hash: await sha256(link), shop_id: out.result.shopId });

@@ -83,5 +83,5 @@ export function adminView(d, extra, now) {
       stocked: Object.values(s.stock).filter((q) => q > 0).length,
     };
   });
-  return { now, orders, shops, manual: extra.manual ?? [], payments: extra.payments ?? [], rules: d.cfg, payout: extra.payout };
+  return { now, orders, shops, manual: extra.manual ?? [], payments: extra.payments ?? [], rules: d.cfg, payout: extra.payout, ownerPhone: extra.ownerPhone ?? '' };
 }

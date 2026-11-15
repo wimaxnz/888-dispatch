@@ -62,6 +62,7 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname === '/admin') {
     if (!req.headers['x-admin-key']) return send(res, 403, { error: 'Wrong admin key' });
+    if (req.method === 'GET' && url.searchParams.get('sms')) return send(res, 200, { sms: [{ at: new Date().toISOString(), to_number: '639171112222', kind: 'offer', ref: '1001', message: '888 NEW ORDER: Tipid Starter Pack, 0 km away, you earn P1,030. Open your 888 shop page now to accept.', ok: false, response: 'Insufficient credits' }] });
     if (req.method === 'GET') return url.searchParams.get('events')
       ? send(res, 200, { events: d.events.filter((e) => e.order === url.searchParams.get('events')).map((e) => ({ at: new Date(e.at).toISOString(), type: e.type, data: e })) })
       : send(res, 200, adminView(d, extra, now));
@@ -76,6 +77,9 @@ http.createServer(async (req, res) => {
       case 'hubship': r = d.ship(o.id, 'hub', 'HUB', now); break;
       case 'deliver': r = d.deliver(o.id, now); break;
       case 'pay': { const l = [...d.orders.values()].filter((x) => x.payout?.shop === body.shopId && x.payout.status === 'payable'); const amount = l.reduce((t, x) => t + x.payout.amount, 0); l.forEach((x) => { x.payout.status = 'paid'; }); extra.payments.push({ at: now, shop: body.shopId, orders: l.length, amount }); r = { ok: true, amount }; break; }
+      case 'setPhone': s.phone = body.phone; break;
+      case 'ownerPhone': extra.ownerPhone = body.phone; break;
+      case 'testSms': r = { ok: false, reason: 'Local test: no texts are sent' }; break;
       case 'buyerChoice': r = d.buyerChoice(body.orderId, body.choice, now); break;
       case 'manualDone': extra.manual = extra.manual.map((m) => m.id === body.id ? { ...m, status: 'done' } : m); break;
       case 'rule': { const k = body.path.split('.'), last = k.pop(); k.reduce((x, y) => x[y], d.cfg)[last] = Number(body.value); break; }
