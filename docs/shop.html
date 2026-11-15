@@ -16,8 +16,18 @@
 .online { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid rgba(255,255,255,.3); color: var(--brand-ink); border-radius: 999px; padding: 2px 10px 2px 8px; font-size: 12px; cursor: pointer }
 .online i { width: 8px; height: 8px; border-radius: 50%; background: #6fd394 }
 .online[aria-pressed="false"] i { background: #9a8a7c }
+.toprow { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 2px }
+.bellbtn { border: 0; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 700; cursor: pointer; background: #f2948b; color: #3b0d0a }
+.bellbtn[aria-pressed="true"] { background: #6fd394; color: #0f2a19 }
 .packlist label { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 14px }
-.packlist input { width: 20px; height: 20px; flex: none; accent-color: var(--ok) }
+.packlist input { width: 22px; height: 22px; flex: none; accent-color: var(--ok) }
+.check { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px }
+.check h4 { display: flex; justify-content: space-between; gap: 8px; font-size: 16px }
+.check h4 span { font: 600 13px var(--f-body); color: var(--muted) }
+.shortrow { color: var(--bad); cursor: default }
+.shortrow .x { width: 22px; text-align: center; font-weight: 700 }
+.shortrow small { color: var(--muted) }
+.linkbtn { justify-self: start; background: none; border: 0; padding: 4px 0; color: var(--gold); font-weight: 600; cursor: pointer; text-decoration: underline }
 .deadline { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; align-items: baseline; flex-wrap: wrap }
 .deadline b { font: 700 18px/1 var(--f-head) }
 .stepper { display: flex; align-items: center; gap: 4px; flex: none }
@@ -54,7 +64,8 @@
     <img src="logo.png" alt="888 Grocery">
     <div class="who" id="who" hidden>
       <b id="shopName"></b>
-      <button class="online" id="online" aria-pressed="true"><i></i><span>Taking orders</span></button>
+      <div class="toprow"><button class="bellbtn" id="bellbtn" aria-pressed="false">Alarm off · tap</button>
+      <button class="online" id="online" aria-pressed="true"><i></i><span>Taking orders</span></button></div>
     </div>
   </div>
   <nav class="wrap tabs" role="tablist" id="tabs" hidden>
@@ -112,7 +123,9 @@ function take(view) { V = view; skew = view.now - Date.now(); render(); checkNew
 // alarm" once. Then every new offer rings (repeating ding-ding), buzzes,
 // flashes the screen red, and shows a phone notification if the page is in
 // the background. It rings until the order is opened.
-let alarmTimer = null, wakeLock = null, seenOffers = null, ringing = [], bell = null;
+let alarmTimer = null, wakeLock = null, seenOffers = null, ringing = [], bell = null, alarmOn = false;
+const bellbtn = document.getElementById('bellbtn');
+function showBell() { bellbtn.setAttribute('aria-pressed', String(alarmOn)); bellbtn.textContent = alarmOn ? 'Alarm on · test' : 'Alarm off · tap'; }
 const soundbar = document.getElementById('soundbar');
 // The ding is played as media (like music or a video), not as a web sound
 // effect: iPhones mute web sound effects on silent, but media still plays on
@@ -142,14 +155,20 @@ function ding() {
 async function keepAwake() {
   try { if ('wakeLock' in navigator && !wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch {}
 }
-async function enableAlarm() {
+// Must run straight from the tap, with nothing awaited first, or the phone
+// won't count it as the tap that allows sound.
+function enableAlarm() {
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {} // newer iPhones: play even on silent
-  try { bell = bell || makeBell(); await bell.play(); } catch {}
-  try { if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission(); } catch {}
+  alarmOn = true; soundbar.hidden = true; showBell();
+  try {
+    bell = bell || makeBell(); bell.currentTime = 0;
+    bell.play().catch(() => { alarmOn = false; soundbar.hidden = false; showBell(); toast('The phone blocked the sound. Tap "Alarm off · tap" again.'); });
+  } catch {}
   keepAwake();
   try { localStorage.setItem('888-alarm', 'on'); } catch {}
-  soundbar.hidden = true;
-  toast('Order alarm is on. Keep this page open.');
+  // Ask for phone notifications separately, so an unanswered question never blocks the sound.
+  setTimeout(() => { try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {}); } catch {} }, 1500);
+  toast('Alarm on. You should hear a ding now. No ding? Turn the media volume up.');
 }
 function startAlarm(offers) {
   ringing = offers.map((o) => o.id);
@@ -184,7 +203,8 @@ function checkNewOffers() {
   else if (ringing.length && !ringing.some((id) => ids.includes(id))) stopAlarm(); // taken by another shop or expired
 }
 soundbar.addEventListener('click', enableAlarm);
-document.getElementById('alarm-go').addEventListener('click', stopAlarm);
+document.getElementById('alarm-go').addEventListener('click', () => { if (!alarmOn) enableAlarm(); stopAlarm(); });
+bellbtn.addEventListener('click', () => { if (!alarmOn) enableAlarm(); else { ding(); toast('Test ding. No sound? Turn the media volume up.'); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) keepAwake(); });
 if (TOKEN) soundbar.hidden = false;
 async function load() {
@@ -197,8 +217,17 @@ async function act(body, okMsg) {
 }
 
 // ---------- Views ----------
+// Before accepting, the shop checks its shelf and ticks every item it has.
+// Items it's short of are covered by the promise to buy them in.
+function offerState(id) { return (ui.offers ??= {})[id] ??= { ticks: {}, promise: false }; }
+function canAccept(o) {
+  const st = offerState(o.id);
+  return o.items.every((it, i) => it.short || st.ticks[i]) && (!o.missing.length || st.promise);
+}
 function offerCard(o) {
   const count = o.items.reduce((t, i) => t + i.qty, 0);
+  const st = offerState(o.id);
+  const have = o.items.filter((i) => !i.short).length, ticked = o.items.filter((it, i) => !it.short && st.ticks[i]).length;
   return `<article class="card">
     <div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">${esc(o.area)} · ${o.km} km from you · paid ${peso(o.paid)}</p></div>
       <span class="chip num" data-until="${o.expiresAt}">${left(o.expiresAt - now())}</span></div>
@@ -206,12 +235,19 @@ function offerCard(o) {
     ${o.missing.length ? `<div class="warn"><strong>You're short of ${o.missing.length} item${o.missing.length > 1 ? 's' : ''}</strong>
       <ul>${o.missing.map((m) => `<li>${m.qty} × ${esc(m.name)}</li>`).join('')}</ul>
       <p class="note" style="color:inherit">You can still take it if you buy ${o.missing.length > 1 ? 'them' : 'it'} in within ${V.rules.sourceWithinHours} hours. Your pay covers the full order.</p>
-      <label class="promise"><input type="checkbox" data-promise="${o.id}"> I will buy in the missing items and ship within ${V.rules.shipWithinHours} hours</label></div>` : ''}
+      <label class="promise"><input type="checkbox" data-promise="${o.id}" ${st.promise ? 'checked' : ''}> I will buy in the missing items and ship within ${V.rules.shipWithinHours} hours</label></div>` : ''}
     ${o.dropped.length ? `<p class="note">888 removed ${o.dropped.map(esc).join(', ')} (no shop could get it; the buyer was refunded).</p>` : ''}
-    <details><summary>See all ${count} items</summary><ul class="items">${o.items.map((i) => `<li class="${i.short ? 'short' : ''}"><span class="mark">${i.short ? '✕' : '✓'}</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}${i.short ? `<small>you have ${i.have}</small>` : ''}</span></li>`).join('')}</ul></details>
+    <section class="check">
+      <h4>Check your shelf <span class="num" id="count-${o.id}">${ticked} of ${have} ticked</span></h4>
+      <p class="note">Tick each item you have ready. Accept unlocks when every item is ticked.</p>
+      ${o.lines.some((l) => l.contents) ? `<p class="note">${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
+      <div class="packlist">${o.items.map((it, i) => it.short
+        ? `<label class="shortrow"><span class="x">✕</span><span class="num">${it.qty}×</span> ${esc(it.name)} <small>short (you have ${it.have}), buy in</small></label>`
+        : `<label><input type="checkbox" data-oftick="${o.id}|${i}" ${st.ticks[i] ? 'checked' : ''}><span class="num">${it.qty}×</span> ${esc(it.name)}</label>`).join('')}</div>
+    </section>
     ${o.others ? `<p class="note">Also offered to ${o.others} other shop${o.others > 1 ? 's' : ''}. First to accept gets it.</p>` : ''}
     <div class="actions">
-      <button class="btn primary wide" data-act="accept" data-id="${o.id}" ${o.missing.length ? 'disabled' : ''}>Accept order</button>
+      <button class="btn primary wide" data-act="accept" data-id="${o.id}" ${canAccept(o) ? '' : 'disabled'}>${canAccept(o) ? 'Accept order' : 'Tick every item to accept'}</button>
       ${o.missing.length ? `<button class="btn" data-act="cant" data-id="${o.id}">Can't get items</button>` : ''}
       <button class="btn ${o.missing.length ? '' : 'wide'}" data-act="busy" data-id="${o.id}">Busy / closed</button>
     </div></article>`;
@@ -241,11 +277,10 @@ function orderCard(o) {
       <button class="btn danger wide" data-act="cantsource" data-id="${o.id}">${u.confirmCant ? 'Tap again: give this order to another shop' : 'I can\'t get them'}</button></div>
       <p class="note">Saying "I can't get them" before the time is up gives no strike. Saying nothing gives a strike.</p>`;
   } else if (st === 'pack') {
-    const all = o.items.every((i) => u.ticks[i.sku]);
-    body = `<h4>Pack the order</h4><p class="note">Tick each item as it goes in.</p>
+    body = `<h4>Pack the order</h4><p class="note">You checked these on your shelf when you accepted. Put them in the bag.</p>
       ${o.lines.some((l) => l.contents) ? `<p class="note">Bundles: ${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
-      <div class="packlist">${o.items.map((i) => `<label><input type="checkbox" data-tick="${o.id}|${esc(i.sku)}" ${u.ticks[i.sku] ? 'checked' : ''}><span class="num">${i.qty}×</span> ${esc(i.name)}</label>`).join('')}</div>
-      <button class="btn primary" data-act="packed" data-id="${o.id}" ${all ? '' : 'disabled'}>Packed: ready for the courier</button>`;
+      <ul class="items">${o.items.map((i) => `<li><span class="mark">✓</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}</span></li>`).join('')}</ul>
+      <button class="btn primary" data-act="packed" data-id="${o.id}">Packed: ready for the courier</button>`;
   } else if (st === 'ship') {
     body = `<h4>Hand it to the courier</h4>
       <label class="field">Courier<select data-courier="${o.id}">${['Lalamove', 'Grab Express', 'J&T Express', 'LBC', 'Own rider'].map((c) => `<option ${u.courier === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
@@ -324,7 +359,7 @@ document.addEventListener('click', async (ev) => {
     const q = Math.max(0, item.qty + Number(d)); item.qty = q; b.parentElement.querySelector('input').value = q; queueStock(sku, q); return;
   }
   const id = b.dataset.id, a = b.dataset.act;
-  if (a === 'accept') { const r = await act({ act: 'accept', offerId: id, commit: !!document.querySelector(`[data-promise="${id}"]`)?.checked }, 'It\'s yours. Open "My orders".'); if (r?.ok) { tab = 'orders'; render(); } }
+  if (a === 'accept') { const r = await act({ act: 'accept', offerId: id, commit: !!offerState(id).promise }, 'It\'s yours. Open "My orders".'); if (r?.ok) { tab = 'orders'; render(); } }
   if (a === 'cant') await act({ act: 'decline', offerId: id, reason: 'shortage' }, 'Declined. 888 will find another shop.');
   if (a === 'busy') await act({ act: 'decline', offerId: id, reason: 'busy' }, 'Declined. 888 will find another shop.');
   if (a === 'sourced') await act({ act: 'sourced', orderId: id }, 'Great. Now pack it.');
@@ -335,7 +370,8 @@ document.addEventListener('click', async (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
-  if (t.dataset.promise) document.querySelector(`[data-act="accept"][data-id="${t.dataset.promise}"]`).disabled = !t.checked;
+  if (t.dataset.promise) { offerState(t.dataset.promise).promise = t.checked; refreshAccept(t.dataset.promise); }
+  if (t.dataset.oftick) { const [id, i] = t.dataset.oftick.split('|'); offerState(id).ticks[i] = t.checked; refreshAccept(id); }
   if (t.dataset.tick) { const [id, sku] = t.dataset.tick.split('|'); ui[id].ticks[sku] = t.checked; const o = V.orders.find((x) => x.id === id); document.querySelector(`[data-act="packed"][data-id="${id}"]`).disabled = !o.items.every((i) => ui[id].ticks[i.sku]); }
   if (t.dataset.courier) ui[t.dataset.courier].courier = t.value;
   if (t.dataset.qty) { const q = Math.max(0, Math.floor(Number(t.value) || 0)); t.value = q; V.stock.find((i) => i.sku === t.dataset.qty).qty = q; queueStock(t.dataset.qty, q); }
@@ -345,6 +381,14 @@ document.addEventListener('input', (ev) => {
   if (t.dataset.track) { ui[t.dataset.track].tracking = t.value.trim(); document.querySelector(`[data-act="ship"][data-id="${t.dataset.track}"]`).disabled = !t.value.trim(); }
   if (t.id === 'stock-q') { stockQ = t.value; const box = document.getElementById('stock-list'); const tmp = document.createElement('div'); tmp.innerHTML = stockView(); box.innerHTML = tmp.querySelector('#stock-list').innerHTML; }
 });
+
+function refreshAccept(id) {
+  const o = V.offers.find((x) => x.id === id); if (!o) return;
+  const b = document.querySelector(`[data-act="accept"][data-id="${id}"]`), ok = canAccept(o), st = offerState(id);
+  b.disabled = !ok; b.textContent = ok ? 'Accept order' : 'Tick every item to accept';
+  const c = document.getElementById(`count-${id}`);
+  if (c) c.textContent = `${o.items.filter((it, i) => !it.short && st.ticks[i]).length} of ${o.items.filter((i) => !i.short).length} ticked`;
+}
 
 // Stock changes are saved a moment after the last tap.
 const pending = new Map(); let stockTimer;
