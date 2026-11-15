@@ -140,3 +140,11 @@ test('shop and admin views: a shop sees its offer but not the address until it a
   assert.equal(a.orders[0].shopName, 'Talisay');
   assert.equal(a.orders[0].sale, 2800);
 });
+
+test('Shopify prices in NZD are ignored: shop pay and refunds use the peso catalogue', () => {
+  const r = fromShopify(shopifyOrder({ currency: 'NZD', total_price: '12.88', line_items: [
+    { variant_id: Number(V('Ulam Essentials')), quantity: 1, price: '12.88', title: 'Ulam Essentials' }] }), catalog);
+  assert.equal(r.package.price, 500);
+  assert.equal(r.package.shopPayout, Math.round(500 * 0.7 + 50));
+  assert.deepEqual(r.order.extra.charged, { amount: 12.88, currency: 'NZD' });
+});

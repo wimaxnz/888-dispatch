@@ -24,7 +24,7 @@ export function fromShopify(o, catalog, payout = PAYOUT) {
 
   const manual = (reason) => ({
     manual: { id: `M-${ref}`, shopifyId: o.id, ref, paidAt, reason, recipient, buyer, note,
-      items: lines.map((li) => ({ title: li.title, qty: li.quantity, price: Number(li.price) })), status: 'todo' },
+      items: lines.map((li) => ({ title: li.title, qty: li.quantity })), status: 'todo' },
   });
 
   if ((a.country_code ?? 'PH') !== 'PH') return manual('Address is outside the Philippines');
@@ -42,11 +42,13 @@ export function fromShopify(o, catalog, payout = PAYOUT) {
   const lineSummary = [];
   for (const li of lines) {
     const c = catalog.byVariant.get(String(li.variant_id));
-    price += Number(li.price) * li.quantity;
+    // Prices come from the 888 peso catalogue: Shopify sends them in the store's
+    // base currency (NZD), which isn't what shops are paid in.
+    price += c.price * li.quantity;
     grams += (li.grams || c.grams) * li.quantity;
     lineSummary.push({ title: c.title, qty: li.quantity, kind: c.kind, contents: c.contents });
     if (c.kind === 'pack') for (const i of catalog.packs.get(c.packageId).items) add(i.sku, i.name, i.qty * li.quantity, i.unit);
-    else add(`v:${c.variantId}`, c.title, li.quantity, Number(li.price));
+    else add(`v:${c.variantId}`, c.title, li.quantity, c.price);
   }
   const pkg = {
     id: `ORDER-${ref}`, name: lineSummary.map((l) => `${l.qty > 1 ? `${l.qty} × ` : ''}${l.title}`).join(', '),
@@ -58,7 +60,8 @@ export function fromShopify(o, catalog, payout = PAYOUT) {
     order: {
       id: ref, packageId: pkg.id, qty: 1, paidAt,
       address: { lat: where.lat, lng: where.lng, island: where.island },
-      extra: { shopifyId: o.id, ref, recipient, buyer, note, lines: lineSummary, locatedBy: where.source },
+      extra: { shopifyId: o.id, ref, recipient, buyer, note, lines: lineSummary, locatedBy: where.source,
+        charged: { amount: Number(o.total_price ?? 0), currency: o.currency ?? '' } },
     },
   };
 }
