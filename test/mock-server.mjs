@@ -82,5 +82,6 @@ http.createServer(async (req, res) => {
     }
     return send(res, 200, { result: r, view: adminView(d, extra, now) });
   }
+  if (url.pathname === '/demo-order') { order(2000 + Math.floor(Math.random() * 999), [['Ulam Essentials', 1]]); return send(res, 200, { ok: true }); }
   send(res, 404, { error: 'Not found' });
 }).listen(8788, () => console.log('mock on http://localhost:8788'));
