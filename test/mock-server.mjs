@@ -49,7 +49,7 @@ http.createServer(async (req, res) => {
     if (req.method === 'GET') return send(res, 200, shopView(d, id, catalog, now));
     const s = d.shops.get(id); let r = { ok: true };
     switch (body.act) {
-      case 'accept': r = d.accept(body.offerId, now, { commitToSource: !!body.commit }); break;
+      case 'accept': r = d.accept(body.offerId, now, { commitToSource: !!body.commit, mode: body.mode ?? null, notHave: body.notHave ?? [], confirmHave: body.confirmHave ?? [] }); break;
       case 'decline': r = d.decline(body.offerId, now, body.reason); break;
       case 'sourced': r = d.confirmSourced(body.orderId, id, now); break;
       case 'cantsource': r = d.cantSource(body.orderId, id, now); break;
@@ -76,6 +76,7 @@ http.createServer(async (req, res) => {
       case 'hubship': r = d.ship(o.id, 'hub', 'HUB', now); break;
       case 'deliver': r = d.deliver(o.id, now); break;
       case 'pay': { const l = [...d.orders.values()].filter((x) => x.payout?.shop === body.shopId && x.payout.status === 'payable'); const amount = l.reduce((t, x) => t + x.payout.amount, 0); l.forEach((x) => { x.payout.status = 'paid'; }); extra.payments.push({ at: now, shop: body.shopId, orders: l.length, amount }); r = { ok: true, amount }; break; }
+      case 'buyerChoice': r = d.buyerChoice(body.orderId, body.choice, now); break;
       case 'manualDone': extra.manual = extra.manual.map((m) => m.id === body.id ? { ...m, status: 'done' } : m); break;
       case 'rule': { const k = body.path.split('.'), last = k.pop(); k.reduce((x, y) => x[y], d.cfg)[last] = Number(body.value); break; }
       case 'payoutRule': extra.payout = { share: body.share, packingFee: body.packingFee }; break;

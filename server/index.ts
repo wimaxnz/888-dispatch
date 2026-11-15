@@ -117,7 +117,10 @@ async function onShop(req: Request, url: URL) {
     const mineOffer = (id: string) => { const of = d.offers.find((o: any) => o.id === id); return of && of.shopId === shopId ? of : null; };
     let r: any = { ok: true };
     switch (body.act) {
-      case 'accept': r = mineOffer(body.offerId) ? d.accept(body.offerId, now, { commitToSource: !!body.commit }) : { ok: false, reason: 'Not your offer' }; break;
+      case 'accept': r = mineOffer(body.offerId) ? d.accept(body.offerId, now, {
+        commitToSource: !!body.commit, mode: body.mode === 'without' || body.mode === 'buyin' ? body.mode : null,
+        notHave: Array.isArray(body.notHave) ? body.notHave.map(String).slice(0, 50) : [],
+        confirmHave: Array.isArray(body.confirmHave) ? body.confirmHave.map(String).slice(0, 50) : [] }) : { ok: false, reason: 'Not your offer' }; break;
       case 'decline': r = mineOffer(body.offerId) ? d.decline(body.offerId, now, body.reason === 'shortage' ? 'shortage' : 'busy') : { ok: false }; break;
       case 'sourced': r = d.confirmSourced(body.orderId, shopId, now); break;
       case 'cantsource': r = d.cantSource(body.orderId, shopId, now); break;
@@ -180,6 +183,7 @@ async function onAdmin(req: Request, url: URL) {
         extra.payments = [...(extra.payments ?? []), { at: now, shop: body.shopId, orders: list.length, amount }];
         r = { ok: true, amount }; break;
       }
+      case 'buyerChoice': r = o ? d.buyerChoice(o.id, body.choice === 'later' ? 'later' : 'refund', now) : { ok: false }; break;
       case 'manualDone': extra.manual = (extra.manual ?? []).map((m: any) => m.id === body.id ? { ...m, status: 'done', doneAt: now } : m); break;
       case 'rule': {
         const v = Number(body.value);

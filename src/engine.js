@@ -52,13 +52,14 @@ export class Dispatcher {
   hasFullStock(shop, order) { return this.missing(shop, order).length === 0; }
 
   // Rule 2b: a shop short of only a few items may still take the order.
-  withinTolerance(miss, order) {
+  withinTolerance(miss, order, ignoreFullOnly = false) {
     if (!miss.length) return true;
-    if (order.fullOnly) return false;
+    if (order.fullOnly && !ignoreFullOnly) return false;
     const p = this.cfg.partial;
-    const total = this.need(order).reduce((t, n) => t + n.qty * n.unit, 0);
-    const shortValue = miss.reduce((t, m) => t + m.value, 0);
-    return miss.length <= p.maxMissingItems && (shortValue / total) * 100 <= p.maxMissingValuePct;
+    const total = this.pkg(order).items.reduce((t, i) => t + i.qty * i.unit, 0) * order.qty;
+    const gone = [...order.dropped, ...miss];
+    const goneValue = gone.reduce((t, m) => t + (m.value ?? 0), 0);
+    return gone.length <= p.maxMissingItems && (goneValue / total) * 100 <= p.maxMissingValuePct;
   }
 
   ring(shop, address) {
@@ -159,30 +160,51 @@ export class Dispatcher {
 
   // First accept wins. In a real database this must be one locked update,
   // so two shops tapping Accept at the same moment can't both win.
-  // A short shop must tick "I will buy in the missing items and ship within 24 h".
-  accept(offerId, now, { commitToSource = false } = {}) {
+  // The shop ticks what it has on its shelf; anything it leaves unticked
+  // (notHave) counts as missing, on top of what its stock list says.
+  // With missing items it chooses:
+  //   mode 'buyin'   - promise to buy them in and ship the full order (commitToSource)
+  //   mode 'without' - ship without them; it is paid only for what it sends and
+  //                    the buyer is asked: refund, or send the rest later?
+  accept(offerId, now, { commitToSource = false, mode = null, notHave = [], confirmHave = [] } = {}) {
     const offer = this.offers.find((o) => o.id === offerId);
     if (!offer || offer.status !== 'pending') return { ok: false, reason: 'offer no longer open' };
-    if (offer.missing.length && !commitToSource) return { ok: false, reason: 'tick the promise to buy in the missing items' };
     if (now > offer.expiresAt) { offer.status = 'expired'; return { ok: false, reason: 'offer expired' }; }
     const order = this.orders.get(offer.orderId);
     const shop = this.shops.get(offer.shopId);
     if (order.status !== 'dispatching') { offer.status = 'cancelled'; return { ok: false, reason: 'already taken' }; }
-    const miss = this.missing(shop, order);
-    if (!this.withinTolerance(miss, order)) { offer.status = 'declined'; return { ok: false, reason: 'stock changed, too many items short' }; }
+    const needs = this.need(order);
+    // The shop ticked an item its stock list says it's short of: it has it, so trust the shelf.
+    for (const sku of confirmHave) {
+      const n = needs.find((x) => x.sku === sku);
+      if (n && !notHave.includes(sku) && this.free(shop, sku) < n.qty) shop.stock[sku] = (shop.reserved[sku] ?? 0) + n.qty;
+    }
+    const gone = new Set(notHave.filter((sku) => needs.some((n) => n.sku === sku)));
+    const miss = this.missing(shop, order).filter((m) => !gone.has(m.sku));
+    for (const sku of gone) { const n = needs.find((x) => x.sku === sku); miss.push({ sku, name: n.name, qty: n.qty, value: n.qty * n.unit }); }
+    if (miss.length && mode !== 'without' && !commitToSource) return { ok: false, reason: 'choose: buy in the missing items, or send without them' };
+    if (!this.withinTolerance(miss, order, mode === 'without')) return { ok: false, reason: `too many items missing (at most ${this.cfg.partial.maxMissingItems}). Decline instead` };
 
-    // Hold what the shop has now; the missing part is held once it's bought in.
+    // What the shop says it doesn't have isn't on its shelf: correct its stock.
+    for (const sku of gone) shop.stock[sku] = shop.reserved[sku] ?? 0;
     const have = {};
-    for (const n of this.need(order)) have[n.sku] = Math.min(n.qty, this.free(shop, n.sku));
+    for (const n of needs) have[n.sku] = gone.has(n.sku) ? 0 : Math.min(n.qty, this.free(shop, n.sku));
     offer.status = 'accepted';
-    offer.payout = this.payoutFor(order);   // in case an item was dropped after the offer went out
-    offer.missing = miss;
     for (const o of this.pending(order)) o.status = 'cancelled';
     order.status = 'assigned';
     order.shopId = shop.id;
     order.offer = offer;
     this.hold(shop, order, have);
 
+    if (miss.length && mode === 'without') {
+      this.dropItems(order, miss, now, 'shop sent without');
+      offer.payout = this.payoutFor(order);
+      offer.missing = [];
+      this.log(now, 'accepted_without', { order: order.id, shop: shop.id, missing: miss.map((m) => `${m.qty} x ${m.name}`), payout: offer.payout });
+      return { ok: true, deadline: order.deadline, without: miss };
+    }
+    offer.payout = this.payoutFor(order);   // in case an item was dropped after the offer went out
+    offer.missing = miss;
     if (miss.length) {
       const p = this.cfg.partial;
       const sourceBy = Math.min(now + p.sourceWithinHours * HOUR, order.deadline - p.packingHours * HOUR);
@@ -231,23 +253,65 @@ export class Dispatcher {
       if (order.status === 'dispatching') this.toHub(order, now, 'too many items unavailable nearby', true);
       return;
     }
-    for (const m of drop) {
+    this.dropItems(order, drop, now, 'no shop nearby could get it');
+    // Shops that declined only because of the shortage get another chance.
+    for (const id of order.shortageShops) order.asked.delete(id);
+    order.shortageShops.clear();
+  }
+
+  // Take items out of the order: the buyer gets that share of the price back,
+  // unless they choose to have them sent later. Either way we ask them.
+  dropItems(order, items, now, why) {
+    const pkg = this.pkg(order);
+    const itemsValue = pkg.items.reduce((t, i) => t + i.qty * i.unit, 0);
+    const added = [];
+    for (const m of items) {
       const need = this.need(order).find((n) => n.sku === m.sku);
       if (!need) continue;
       const value = need.qty * need.unit;
       const refund = Math.round(((order.unitPrice ?? pkg.price) * value) / itemsValue); // value already counts every pack in the order
-      order.dropped.push({ sku: m.sku, name: m.name, qty: need.qty, value, refund });
+      const x = { sku: m.sku, name: m.name, qty: need.qty, unit: need.unit, value, refund, why };
+      order.dropped.push(x); added.push(x);
       order.refund += refund;
-      this.log(now, 'item_dropped', { order: order.id, item: `${need.qty} x ${m.name}`, refund });
+      this.log(now, 'item_dropped', { order: order.id, item: `${need.qty} x ${m.name}`, refund, why });
     }
+    if (!added.length) return;
+    order.buyerChoice = { status: 'ask', askedAt: now };
+    const names = order.dropped.map((x) => x.name).join(' and ');
+    const them = order.dropped.length > 1 ? 'them' : 'it';
     this.log(now, 'customer_notified', {
       order: order.id, refund: order.refund,
-      message: `Sorry, ${order.dropped.map((x) => x.name).join(' and ')} ${order.dropped.length > 1 ? 'are' : 'is'} out of stock near your family. ` +
-        `We're sending everything else now and refunding ₱${order.refund} for the missing items.`,
+      message: `Sorry for the inconvenience: ${names} ${order.dropped.length > 1 ? 'are' : 'is'} out of stock near your family. ` +
+        `We're sending everything else now. Would you like a refund of ₱${order.refund}, or shall we send ${them} later?`,
     });
-    // Shops that declined only because of the shortage get another chance.
-    for (const id of order.shortageShops) order.asked.delete(id);
-    order.shortageShops.clear();
+  }
+
+  // The buyer answers: 'refund' (refund the missing items) or 'later' (a new
+  // delivery with just the missing items goes out through dispatch as usual).
+  buyerChoice(orderId, choice, now) {
+    const order = this.orders.get(orderId);
+    if (!order?.buyerChoice || order.buyerChoice.status !== 'ask') return { ok: false, reason: 'nothing to decide' };
+    if (choice === 'refund') {
+      order.buyerChoice = { ...order.buyerChoice, status: 'refund', at: now };
+      this.log(now, 'buyer_refund', { order: order.id, refund: order.refund });
+      return { ok: true, refund: order.refund };
+    }
+    if (choice !== 'later') return { ok: false, reason: 'choose refund or later' };
+    const pkg = this.pkg(order);
+    const items = order.dropped.map(({ sku, name, qty, unit }) => ({ sku, name, qty, unit: unit ?? 0 }));
+    const id = `${order.id}-B`;
+    const later = {
+      id: `${pkg.id}-B`, name: `Rest of order ${order.id}: ${items.map((i) => i.name).join(', ')}`,
+      price: order.refund, weightKg: Math.max(0.5, pkg.weightKg * 0.2), items,
+      shopPayout: Math.round(order.refund * (pkg.shopPayout * order.qty) / (pkg.price * order.qty)), // same pay rate as the original order
+    };
+    this.packages.set(later.id, later);
+    const keep = ['recipient', 'buyer', 'note', 'shopifyId', 'ref'];
+    const extra = Object.fromEntries(keep.filter((k) => order[k] !== undefined).map((k) => [k, order[k]]));
+    order.buyerChoice = { ...order.buyerChoice, status: 'later', at: now, followUp: id };
+    this.log(now, 'buyer_later', { order: order.id, followUp: id });
+    this.placeOrder({ id, packageId: later.id, qty: 1, address: order.address, paidAt: now, extra: { ...extra, lines: [{ title: later.name, qty: 1 }], followUpOf: order.id } });
+    return { ok: true, followUp: id };
   }
 
   // Shop taps "I have all items now". The bought-in items join its stock and are held.

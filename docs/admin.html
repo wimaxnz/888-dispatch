@@ -110,6 +110,7 @@ function logout(msg) { KEY = null; try { localStorage.removeItem('888-admin-key'
 function attention() {
   const t = V.now, out = [];
   for (const m of V.manual.filter((m) => m.status === 'todo')) out.push({ bad: true, title: `Shopify order ${m.ref}: handle it yourself`, why: m.reason, manual: m.id });
+  for (const o of V.orders) if (o.buyerChoice?.status === 'ask') out.push({ o, ask: true, bad: true, title: `${o.id}: ask the buyer, refund ${peso(o.missingRefund)} or send later?`, why: `Not sent: ${o.droppedNames.join(', ')}. Message the buyer, then record their answer.` });
   for (const o of V.orders) {
     if (o.stage === 'hub' && o.status === 'assigned') out.push({ o, bad: o.urgent, title: `${o.id}: the 888 hub must send this`, why: o.urgent ? (o.failedShop ? 'A shop missed the 24-hour deadline.' : 'Sent to the hub by you.') : 'No partner shop took it.' });
     else if (o.stage === 'find' && t - o.paidAt > HOUR) out.push({ o, title: `${o.id}: no shop yet after ${left(t - o.paidAt)}`, why: `Wave ${o.wave} is out. It goes to the hub at ${V.rules.hubAfterHours} h.` });
@@ -133,7 +134,7 @@ function overview() {
     <div class="tile"><small>Owed to shops</small><b class="num">${peso(owed)}</b><span>${V.shops.filter((s) => !s.hub).length} partner shops</span></div></section>
   <section class="card"><h2>Needs you</h2>
     ${att.length ? `<ul class="attn">${att.map((a) => `<li class="${a.bad ? 'bad' : ''}"><div><b>${esc(a.title)}</b><small>${esc(a.why)}</small></div>
-      ${a.o ? `<button class="btn small" data-open="${esc(a.o.id)}">Open</button>` : a.manual ? `<button class="btn small" data-act="manualDone" data-id="${esc(a.manual)}">Done</button>` : `<button class="btn small" data-act="reinstate" data-shop="${esc(a.shop.id)}">Reinstate</button>`}</li>`).join('')}</ul>`
+      ${a.ask ? `<div class="acts"><button class="btn small" data-copymsg="${esc(a.o.id)}">Copy message</button><button class="btn small" data-act="buyerChoice" data-id="${esc(a.o.id)}" data-choice="refund">Buyer: refund</button><button class="btn small primary" data-act="buyerChoice" data-id="${esc(a.o.id)}" data-choice="later">Buyer: send later</button></div>` : a.o ? `<button class="btn small" data-open="${esc(a.o.id)}">Open</button>` : a.manual ? `<button class="btn small" data-act="manualDone" data-id="${esc(a.manual)}">Done</button>` : `<button class="btn small" data-act="reinstate" data-shop="${esc(a.shop.id)}">Reinstate</button>`}</li>`).join('')}</ul>`
       : `<div class="empty"><b>All clear</b>${os.length ? 'Every order is with a shop and on time.' : 'No orders yet. Paid Shopify orders appear here automatically.'}</div>`}</section>
   ${V.manual.filter((m) => m.status === 'todo').length ? `<section class="card"><h2>Orders to handle yourself</h2>${V.manual.filter((m) => m.status === 'todo').map((m) => `
     <div class="to"><b>Shopify ${esc(m.ref)} · ${esc(m.recipient.name)}, ${esc(m.recipient.city)}</b>${esc(m.reason)}<br>${m.items.map((i) => `${i.qty} × ${esc(i.title)}`).join(', ')}</div>`).join('')}</section>` : ''}`;
@@ -148,7 +149,11 @@ function detail(o) {
     <dl class="kv num"><dt>Sale</dt><dd>${peso(o.sale)}</dd>${o.refund ? `<dt>Refunded</dt><dd>−${peso(o.refund)}</dd>` : ''}
       <dt>${o.stage === 'hub' ? 'Goods (hub)' : 'Shop payout'}</dt><dd>−${peso(o.cost)}</dd><dt>Shipping (est.)</dt><dd>${o.ship == null ? 'not known' : '−' + peso(o.ship)}</dd>
       <dt class="total">Margin</dt><dd class="total">${peso(margin(o))}</dd></dl>
-    ${o.dropped.length ? `<p class="note">Removed: ${o.dropped.map(esc).join(', ')}. Refund ${peso(o.refund)} in Shopify.</p>` : ''}
+    ${o.dropped.length ? `<div class="status ${o.buyerChoice?.status === 'ask' ? 'bad' : 'info'}"><b>Not sent: ${o.dropped.map(esc).join(', ')}</b>${
+      o.buyerChoice?.status === 'ask' ? `Ask the buyer: refund ${peso(o.missingRefund)} or send later?`
+      : o.buyerChoice?.status === 'refund' ? `Buyer chose a refund: refund ${peso(o.missingRefund)} in Shopify.`
+      : o.buyerChoice?.status === 'later' ? `Buyer chose to get ${o.dropped.length > 1 ? 'them' : 'it'} later: follow-up order ${esc(o.buyerChoice.followUp)}.` : ''}</div>` : ''}
+    ${o.followUpOf ? `<p class="note">This sends the missing items from order ${esc(o.followUpOf)}.</p>` : ''}
     <div class="acts">
       ${['find', 'buy', 'pack'].includes(o.stage) ? `<button class="btn small danger" data-act="tohub" data-id="${esc(o.id)}">${confirmKey === 'hub' + o.id ? 'Tap again: send to hub' : 'Send to 888 hub'}</button>` : ''}
       ${o.stage === 'hub' && o.status === 'assigned' ? `<button class="btn small primary" data-act="hubship" data-id="${esc(o.id)}">Hub: mark shipped</button>` : ''}
@@ -164,8 +169,10 @@ function say(e) {
   return ({ order_paid: 'Paid in Shopify', offer_sent: `Offer to ${shopName(d.shop)} (wave ${d.wave}, ${d.km} km${d.missing?.length ? `, short ${d.missing.length}` : ''})`,
     declined: `${shopName(d.shop)} declined (${d.reason === 'shortage' ? "can't get items" : 'busy'})`, offer_expired: `${shopName(d.shop)} didn't answer`,
     accepted: `${shopName(d.shop)} accepted`, accepted_partial: `${shopName(d.shop)} accepted, buying in ${d.missing?.join(', ')}`,
+    accepted_without: `${shopName(d.shop)} accepted without ${d.missing?.join(', ')} (paid ${peso(d.payout)})`,
+    buyer_refund: `Buyer chose a refund (${peso(d.refund)})`, buyer_later: `Buyer chose to get the rest later: ${d.followUp}`,
     sourced: `${shopName(d.shop)} has all items`, cant_source: `${shopName(d.shop)} couldn't get the items`, sourcing_missed: `${shopName(d.shop)} didn't confirm items: strike`,
-    item_dropped: `Removed ${d.item}; refund ${peso(d.refund)}`, customer_notified: 'Buyer to be told about the missing item', shipped: `Shipped · ${d.tracking}`,
+    item_dropped: `Removed ${d.item}; refund ${peso(d.refund)}`, customer_notified: 'Buyer to be asked: refund or send later', shipped: `Shipped · ${d.tracking}`,
     payout_payable: `Delivered · ${peso(d.amount)} owed to ${shopName(d.shop)}`, deadline_missed: `${shopName(d.shop)} missed the deadline: not paid, strike`,
     to_hub: `To the 888 hub (${d.reason})`, hub_urgent: `To the 888 hub, urgent (${d.reason})`, hub_needs_stock: 'Hub stock not tracked yet' })[e.type] ?? e.type;
 }
@@ -262,12 +269,19 @@ document.addEventListener('click', async (ev) => {
   if (b.dataset.filter) { filter = b.dataset.filter; sel = null; render(); return; }
   if (b.dataset.open) { sel = b.dataset.open; tab = 'orders'; delete events[sel]; render(); return; }
   if (b.hasAttribute('data-logout')) { logout(); return; }
+  if (b.dataset.copymsg) {
+    const o = V.orders.find((x) => x.id === b.dataset.copymsg), n = o.droppedNames, them = n.length > 1 ? 'them' : 'it';
+    const msg = `Hi${o.buyer?.name ? ' ' + o.buyer.name : ''}, sorry for the inconvenience. ${n.join(' and ')} ${n.length > 1 ? 'were' : 'was'} out of stock near your family, so we sent everything else in your 888 order ${o.id}. Would you like a refund of ${peso(o.missingRefund)} for ${them}, or shall we send ${them} later? Just reply and we'll sort it out. Salamat po!`;
+    try { await navigator.clipboard.writeText(msg); toast('Message copied. Paste it into email or Messenger.'); } catch { toast(msg); }
+    return;
+  }
   if (b.hasAttribute('data-copy')) { const t = document.getElementById('link').textContent; try { await navigator.clipboard.writeText(t); toast('Link copied'); } catch { getSelection().selectAllChildren(document.getElementById('link')); toast('Select and copy the link'); } return; }
   const a = b.dataset.act, id = b.dataset.id, shop = b.dataset.shop;
   if (a === 'tohub') { if (!twice('hub' + id)) return; await act({ act: 'tohub', orderId: id }, `${id} is now with the 888 hub`); delete events[id]; }
   if (a === 'hubship') await act({ act: 'hubship', orderId: id, tracking: 'HUB' }, 'Marked as shipped from the hub');
   if (a === 'deliver') await act({ act: 'deliver', orderId: id }, 'Marked as delivered');
   if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');
+  if (a === 'buyerChoice') { const r = await act({ act: 'buyerChoice', orderId: id, choice: b.dataset.choice }); if (r?.ok) toast(r.followUp ? `Follow-up order ${r.followUp} is going out` : `Recorded. Refund ${peso(r.refund)} in Shopify.`); }
   if (a === 'pauseShop') await act({ act: 'pauseShop', shopId: shop }, 'Shop paused');
   if (a === 'reinstate') await act({ act: 'reinstate', shopId: shop }, 'Shop reinstated, strikes cleared');
   if (a === 'clearStrikes') await act({ act: 'clearStrikes', shopId: shop }, 'Strikes cleared');

@@ -27,6 +27,8 @@
 .shortrow { color: var(--bad); cursor: default }
 .shortrow .x { width: 22px; text-align: center; font-weight: 700 }
 .shortrow small { color: var(--muted) }
+.promise input[type=radio] { width: 22px; height: 22px; margin: 0; flex: none; accent-color: var(--gold) }
+.promise small { font-weight: 400 }
 .linkbtn { justify-self: start; background: none; border: 0; padding: 4px 0; color: var(--gold); font-weight: 600; cursor: pointer; text-decoration: underline }
 .deadline { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; align-items: baseline; flex-wrap: wrap }
 .deadline b { font: 700 18px/1 var(--f-head) }
@@ -218,38 +220,45 @@ async function act(body, okMsg) {
 
 // ---------- Views ----------
 // Before accepting, the shop checks its shelf and ticks every item it has.
-// Items it's short of are covered by the promise to buy them in.
-function offerState(id) { return (ui.offers ??= {})[id] ??= { ticks: {}, promise: false }; }
-function canAccept(o) {
-  const st = offerState(o.id);
-  return o.items.every((it, i) => it.short || st.ticks[i]) && (!o.missing.length || st.promise);
+// Anything left unticked is missing. Then it chooses: buy those in and send
+// everything, or send without them (paid only for what it sends; 888 asks the
+// buyer whether they want a refund or the rest sent later).
+function offerState(id) { return (ui.offers ??= {})[id] ??= { ticks: {}, mode: null }; }
+function unticked(o) { const st = offerState(o.id); return o.items.filter((it, i) => !st.ticks[i]); }
+function acceptState(o) {
+  const st = offerState(o.id), miss = unticked(o), max = V.rules.maxMissingItems ?? 2;
+  if (!miss.length) return { ok: true, label: 'Accept order' };
+  if (miss.length > max) return { ok: false, label: `More than ${max} missing: decline this one` };
+  if (st.mode === 'buyin') return { ok: true, label: 'Accept: I\'ll buy in the missing' };
+  if (st.mode === 'without') return { ok: true, label: `Accept without ${miss.length} item${miss.length > 1 ? 's' : ''}` };
+  return { ok: false, label: 'Choose what to do about the missing items' };
 }
 function offerCard(o) {
   const count = o.items.reduce((t, i) => t + i.qty, 0);
-  const st = offerState(o.id);
-  const have = o.items.filter((i) => !i.short).length, ticked = o.items.filter((it, i) => !it.short && st.ticks[i]).length;
+  const st = offerState(o.id), miss = unticked(o), max = V.rules.maxMissingItems ?? 2, acc = acceptState(o);
+  const ticked = o.items.length - miss.length;
   return `<article class="card">
     <div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">${esc(o.area)} · ${o.km} km from you · paid ${peso(o.paid)}</p></div>
       <span class="chip num" data-until="${o.expiresAt}">${left(o.expiresAt - now())}</span></div>
     <dl class="facts"><div><dt>You earn</dt><dd class="num good">${peso(o.payout)}</dd></div><div><dt>Ship by</dt><dd>${when.format(o.deadline)}</dd></div><div><dt>Items</dt><dd class="num">${count}</dd></div></dl>
-    ${o.missing.length ? `<div class="warn"><strong>You're short of ${o.missing.length} item${o.missing.length > 1 ? 's' : ''}</strong>
-      <ul>${o.missing.map((m) => `<li>${m.qty} × ${esc(m.name)}</li>`).join('')}</ul>
-      <p class="note" style="color:inherit">You can still take it if you buy ${o.missing.length > 1 ? 'them' : 'it'} in within ${V.rules.sourceWithinHours} hours. Your pay covers the full order.</p>
-      <label class="promise"><input type="checkbox" data-promise="${o.id}" ${st.promise ? 'checked' : ''}> I will buy in the missing items and ship within ${V.rules.shipWithinHours} hours</label></div>` : ''}
-    ${o.dropped.length ? `<p class="note">888 removed ${o.dropped.map(esc).join(', ')} (no shop could get it; the buyer was refunded).</p>` : ''}
+    ${o.dropped.length ? `<p class="note">888 removed ${o.dropped.map(esc).join(', ')} (no shop could get it).</p>` : ''}
     <section class="check">
-      <h4>Check your shelf <span class="num" id="count-${o.id}">${ticked} of ${have} ticked</span></h4>
-      <p class="note">Tick each item you have ready. Accept unlocks when every item is ticked.</p>
+      <h4>Check your shelf <span class="num">${ticked} of ${o.items.length} ticked</span></h4>
+      <p class="note">Tick each item you have ready. Leave an item unticked if you don't have it.</p>
       ${o.lines.some((l) => l.contents) ? `<p class="note">${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
-      <div class="packlist">${o.items.map((it, i) => it.short
-        ? `<label class="shortrow"><span class="x">✕</span><span class="num">${it.qty}×</span> ${esc(it.name)} <small>short (you have ${it.have}), buy in</small></label>`
-        : `<label><input type="checkbox" data-oftick="${o.id}|${i}" ${st.ticks[i] ? 'checked' : ''}><span class="num">${it.qty}×</span> ${esc(it.name)}</label>`).join('')}</div>
+      <div class="packlist">${o.items.map((it, i) => `<label class="${!st.ticks[i] && it.short ? 'shortrow' : ''}"><input type="checkbox" data-oftick="${o.id}|${i}" ${st.ticks[i] ? 'checked' : ''}><span class="num">${it.qty}×</span> ${esc(it.name)}${it.short ? ` <small>your stock list says ${it.have}</small>` : ''}</label>`).join('')}</div>
     </section>
+    ${miss.length ? `<div class="warn">
+      <strong>${miss.length} item${miss.length > 1 ? 's' : ''} not ticked: ${miss.map((m) => `${m.qty} × ${esc(m.name)}`).join(', ')}</strong>
+      ${miss.length > max ? `<p class="note" style="color:inherit">You can take an order with at most ${max} missing items. Please decline this one so another shop can send it complete.</p>` : `
+      <label class="promise"><input type="radio" name="mode-${o.id}" data-mode="${o.id}|buyin" ${st.mode === 'buyin' ? 'checked' : ''}> <span>I'll buy ${miss.length > 1 ? 'them' : 'it'} in and send everything within ${V.rules.shipWithinHours} hours<br><small class="note">Confirm within ${V.rules.sourceWithinHours} hours that you have ${miss.length > 1 ? 'them' : 'it'}. Full pay.</small></span></label>
+      <label class="promise"><input type="radio" name="mode-${o.id}" data-mode="${o.id}|without" ${st.mode === 'without' ? 'checked' : ''}> <span>Send without ${miss.length > 1 ? 'them' : 'it'}<br><small class="note">You're paid only for what you send. 888 asks the buyer: refund, or send the rest later.</small></span></label>`}
+    </div>` : ''}
     ${o.others ? `<p class="note">Also offered to ${o.others} other shop${o.others > 1 ? 's' : ''}. First to accept gets it.</p>` : ''}
     <div class="actions">
-      <button class="btn primary wide" data-act="accept" data-id="${o.id}" ${canAccept(o) ? '' : 'disabled'}>${canAccept(o) ? 'Accept order' : 'Tick every item to accept'}</button>
-      ${o.missing.length ? `<button class="btn" data-act="cant" data-id="${o.id}">Can't get items</button>` : ''}
-      <button class="btn ${o.missing.length ? '' : 'wide'}" data-act="busy" data-id="${o.id}">Busy / closed</button>
+      <button class="btn primary wide" data-act="accept" data-id="${o.id}" ${acc.ok ? '' : 'disabled'}>${acc.label}</button>
+      ${miss.length ? `<button class="btn" data-act="cant" data-id="${o.id}">Can't get items</button>` : ''}
+      <button class="btn ${miss.length ? '' : 'wide'}" data-act="busy" data-id="${o.id}">Busy / closed</button>
     </div></article>`;
 }
 
@@ -278,6 +287,7 @@ function orderCard(o) {
       <p class="note">Saying "I can't get them" before the time is up gives no strike. Saying nothing gives a strike.</p>`;
   } else if (st === 'pack') {
     body = `<h4>Pack the order</h4><p class="note">You checked these on your shelf when you accepted. Put them in the bag.</p>
+      ${o.dropped.length ? `<div class="status info"><b>Not in this delivery</b>${o.dropped.map(esc).join(', ')}. Don't pack ${o.dropped.length > 1 ? 'them' : 'it'}; 888 is sorting it out with the buyer.</div>` : ''}
       ${o.lines.some((l) => l.contents) ? `<p class="note">Bundles: ${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
       <ul class="items">${o.items.map((i) => `<li><span class="mark">✓</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}</span></li>`).join('')}</ul>
       <button class="btn primary" data-act="packed" data-id="${o.id}">Packed: ready for the courier</button>`;
@@ -299,7 +309,7 @@ function orderCard(o) {
     ${o.recipient ? `<div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}${r.province ? ', ' + esc(r.province) : ''}</div>` : ''}
     ${o.note ? `<p class="note">Note from the buyer: “${esc(o.note)}”</p>` : ''}
     ${live ? `<div class="deadline"><span>Ship by ${when.format(o.deadline)}</span><b class="num" data-until="${o.deadline}">${left(o.deadline - now())}</b></div>` : ''}
-    ${o.dropped.length ? `<p class="note">Removed by 888: ${o.dropped.map(esc).join(', ')}. Don't pack it.</p>` : ''}
+
     ${body}</article>`;
 }
 
@@ -359,7 +369,13 @@ document.addEventListener('click', async (ev) => {
     const q = Math.max(0, item.qty + Number(d)); item.qty = q; b.parentElement.querySelector('input').value = q; queueStock(sku, q); return;
   }
   const id = b.dataset.id, a = b.dataset.act;
-  if (a === 'accept') { const r = await act({ act: 'accept', offerId: id, commit: !!offerState(id).promise }, 'It\'s yours. Open "My orders".'); if (r?.ok) { tab = 'orders'; render(); } }
+  if (a === 'accept') {
+    const o = V.offers.find((x) => x.id === id), st = offerState(id), miss = unticked(o);
+    const body = { act: 'accept', offerId: id, notHave: miss.map((m) => m.sku), confirmHave: o.items.filter((it, i) => st.ticks[i] && it.short).map((it) => it.sku) };
+    if (miss.length) { body.mode = st.mode; body.commit = st.mode === 'buyin'; }
+    const r = await act(body, miss.length && st.mode === 'without' ? 'It\'s yours, without the missing items. 888 will talk to the buyer.' : 'It\'s yours. Open "My orders".');
+    if (r?.ok) { tab = 'orders'; render(); }
+  }
   if (a === 'cant') await act({ act: 'decline', offerId: id, reason: 'shortage' }, 'Declined. 888 will find another shop.');
   if (a === 'busy') await act({ act: 'decline', offerId: id, reason: 'busy' }, 'Declined. 888 will find another shop.');
   if (a === 'sourced') await act({ act: 'sourced', orderId: id }, 'Great. Now pack it.');
@@ -370,8 +386,8 @@ document.addEventListener('click', async (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
-  if (t.dataset.promise) { offerState(t.dataset.promise).promise = t.checked; refreshAccept(t.dataset.promise); }
-  if (t.dataset.oftick) { const [id, i] = t.dataset.oftick.split('|'); offerState(id).ticks[i] = t.checked; refreshAccept(id); }
+  if (t.dataset.oftick) { const [id, i] = t.dataset.oftick.split('|'); offerState(id).ticks[i] = t.checked; render(); }
+  if (t.dataset.mode) { const [id, m] = t.dataset.mode.split('|'); offerState(id).mode = m; render(); }
   if (t.dataset.tick) { const [id, sku] = t.dataset.tick.split('|'); ui[id].ticks[sku] = t.checked; const o = V.orders.find((x) => x.id === id); document.querySelector(`[data-act="packed"][data-id="${id}"]`).disabled = !o.items.every((i) => ui[id].ticks[i.sku]); }
   if (t.dataset.courier) ui[t.dataset.courier].courier = t.value;
   if (t.dataset.qty) { const q = Math.max(0, Math.floor(Number(t.value) || 0)); t.value = q; V.stock.find((i) => i.sku === t.dataset.qty).qty = q; queueStock(t.dataset.qty, q); }
@@ -381,14 +397,6 @@ document.addEventListener('input', (ev) => {
   if (t.dataset.track) { ui[t.dataset.track].tracking = t.value.trim(); document.querySelector(`[data-act="ship"][data-id="${t.dataset.track}"]`).disabled = !t.value.trim(); }
   if (t.id === 'stock-q') { stockQ = t.value; const box = document.getElementById('stock-list'); const tmp = document.createElement('div'); tmp.innerHTML = stockView(); box.innerHTML = tmp.querySelector('#stock-list').innerHTML; }
 });
-
-function refreshAccept(id) {
-  const o = V.offers.find((x) => x.id === id); if (!o) return;
-  const b = document.querySelector(`[data-act="accept"][data-id="${id}"]`), ok = canAccept(o), st = offerState(id);
-  b.disabled = !ok; b.textContent = ok ? 'Accept order' : 'Tick every item to accept';
-  const c = document.getElementById(`count-${id}`);
-  if (c) c.textContent = `${o.items.filter((it, i) => !it.short && st.ticks[i]).length} of ${o.items.filter((i) => !i.short).length} ticked`;
-}
 
 // Stock changes are saved a moment after the last tap.
 const pending = new Map(); let stockTimer;

@@ -25,7 +25,7 @@ export function shopView(d, shopId, catalog, now) {
       id: of.id, orderId: order.id, title: d.pkg(order).name, area: area(order), km: of.km,
       paid: d.pkg(order).price, payout: d.payoutFor(order), expiresAt: of.expiresAt, deadline: order.deadline,
       missing: miss.map((m) => ({ name: m.name, qty: m.qty })),
-      items: d.need(order).map((n) => ({ name: n.name, qty: n.qty, short: short.has(n.sku), have: free(n.sku) })),
+      items: d.need(order).map((n) => ({ sku: n.sku, name: n.name, qty: n.qty, short: short.has(n.sku), have: free(n.sku) })),
       lines: order.lines ?? [], dropped: order.dropped.map((x) => x.name),
       others: d.offers.filter((x) => x.orderId === order.id && x.status === 'pending' && x.shopId !== shopId).length,
     };
@@ -50,7 +50,7 @@ export function shopView(d, shopId, catalog, now) {
   const stock = catalog.stockItems.map((i) => ({ ...i, qty: shop.stock[i.sku] ?? 0, held: shop.reserved[i.sku] ?? 0 }));
   return {
     now, shop: { id: shop.id, name: shop.name, city: shop.city, active: shop.active, strikes: shop.strikes },
-    rules: { sourceWithinHours: d.cfg.partial.sourceWithinHours, strikesToSuspend: d.cfg.strikesToSuspend, shipWithinHours: d.cfg.shipWithinHours },
+    rules: { sourceWithinHours: d.cfg.partial.sourceWithinHours, strikesToSuspend: d.cfg.strikesToSuspend, shipWithinHours: d.cfg.shipWithinHours, maxMissingItems: d.cfg.partial.maxMissingItems },
     offers, orders, stock,
   };
 }
@@ -62,7 +62,8 @@ export function adminView(d, extra, now) {
     return {
       id: o.id, title: pkg.name, stage: stage(d, o), urgent: !!o.urgent, paidAt: o.paidAt, deadline: o.deadline,
       shopId: o.shopId, shopName: shop?.name ?? null, wave: o.wave, area: area(o), recipient: o.recipient ?? null, buyer: o.buyer ?? null,
-      sale: pkg.price * o.qty, refund: o.refund, cost: !shop ? d.payoutFor(o) : shop.hub ? d.payoutFor(o) : (o.payout?.amount ?? (accepted ? o.offer.payout : d.payoutFor(o))),
+      sale: pkg.price * o.qty, refund: o.buyerChoice?.status === 'later' ? 0 : o.refund, missingRefund: o.refund,
+      buyerChoice: o.buyerChoice ?? null, followUpOf: o.followUpOf ?? null, droppedNames: o.dropped.map((x) => x.name), cost: !shop ? d.payoutFor(o) : shop.hub ? d.payoutFor(o) : (o.payout?.amount ?? (accepted ? o.offer.payout : d.payoutFor(o))),
       ship: accepted ? o.offer.shippingCost : null, payout: o.payout ?? null, tracking: o.tracking ?? null,
       sourceBy: o.sourcing && !o.sourcing.confirmed ? o.sourcing.sourceBy : null, failedShop: o.failedShop ?? null,
       dropped: o.dropped.map((x) => `${x.qty} × ${x.name}`), lines: o.lines ?? [], status: o.status,
