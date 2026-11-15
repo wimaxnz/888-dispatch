@@ -189,19 +189,19 @@ function ordersView() {
 function shopsView() {
   const shops = V.shops.filter((s) => !s.hub);
   return `${newLink ? `<section class="card"><h2>Shop link for ${esc(newLink.name)}</h2>
-      <p class="note">Send this link to the shop owner by text or chat. It's their key to the shop screen, so share it only with them. It is shown once; you can make a new one any time (the old one stops working).</p>
+      <p class="note">Send this link to the shop owner by text or chat, or open it on your own phone to test. It works like a password, so share it only with them. It is shown once; "Get shop link" makes a new one any time and the old one stops working.</p>
       <div class="link"><code id="link">${esc(newLink.url)}</code><button class="btn small" data-copy>Copy</button></div></section>` : ''}
     <section class="card"><h2>Partner shops</h2>
-    ${shops.length ? `<div class="table"><table><thead><tr><th>Shop</th><th>Status</th><th>Strikes</th><th>Accepts</th><th class="r">Open</th><th class="r">Owed</th><th></th></tr></thead><tbody>
-      ${shops.map((s) => `<tr><td><b>${esc(s.name)}</b><br><span class="note">${esc(s.city)}${s.phone ? ' · ' + esc(s.phone) : ''} · ${s.stocked} items stocked</span></td>
+    ${shops.length ? `<div class="table"><table><thead><tr><th>Shop</th><th>Status</th><th>Strikes</th><th>Accepts</th><th class="r">Open</th><th class="r">Owed</th></tr></thead><tbody>
+      ${shops.map((s) => `<tr><td><b>${esc(s.name)}</b><br><span class="note">${esc(s.city)}${s.phone ? ' · ' + esc(s.phone) : ''} · ${s.stocked} items stocked</span>
+          <div class="acts" style="margin-top:8px">
+          <button class="btn small primary" data-act="newLink" data-shop="${esc(s.id)}">${confirmKey === 'link' + s.id ? 'Tap again: make new link' : 'Get shop link'}</button>
+          ${s.strikes ? `<button class="btn small" data-act="clearStrikes" data-shop="${esc(s.id)}">Clear strikes</button>` : ''}
+          ${s.active ? `<button class="btn small" data-act="pauseShop" data-shop="${esc(s.id)}">Pause</button>` : `<button class="btn small" data-act="reinstate" data-shop="${esc(s.id)}">Reinstate</button>`}
+          </div></td>
         <td><span class="pill ${s.active ? 'p-done' : 'p-bad'}">${s.active ? 'Taking orders' : 'Paused'}</span></td><td class="num">${s.strikes}</td>
         <td class="num">${s.answered ? Math.round(100 * s.accepted / s.answered) + '%' : '–'} <span class="note">of ${s.answered}</span></td>
-        <td class="r num">${s.open}</td><td class="r num">${s.owed ? peso(s.owed) : '–'}</td>
-        <td class="r"><div class="acts" style="justify-content:flex-end">
-          <button class="btn small" data-act="newLink" data-shop="${esc(s.id)}">${confirmKey === 'link' + s.id ? 'Tap again: new link' : 'New link'}</button>
-          ${s.strikes ? `<button class="btn small" data-act="clearStrikes" data-shop="${esc(s.id)}">Clear strikes</button>` : ''}
-          ${s.active ? `<button class="btn small" data-act="pauseShop" data-shop="${esc(s.id)}">Pause</button>` : `<button class="btn small primary" data-act="reinstate" data-shop="${esc(s.id)}">Reinstate</button>`}
-        </div></td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><b>No partner shops yet</b>Add your first shop below.</div>'}</section>
+        <td class="r num">${s.open}</td><td class="r num">${s.owed ? peso(s.owed) : '–'}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty"><b>No partner shops yet</b>Add your first shop below.</div>'}</section>
     <section class="card"><h2>Add a partner shop</h2>
       <form class="form" id="addshop">
         <label class="field">Shop name<input id="s-name" required maxlength="60" placeholder="e.g. Pardo Grocery"></label>
@@ -272,7 +272,7 @@ document.addEventListener('click', async (ev) => {
   if (a === 'reinstate') await act({ act: 'reinstate', shopId: shop }, 'Shop reinstated, strikes cleared');
   if (a === 'clearStrikes') await act({ act: 'clearStrikes', shopId: shop }, 'Strikes cleared');
   if (a === 'pay') { if (!twice('pay' + shop)) return; const r = await act({ act: 'pay', shopId: shop }); if (r?.ok) toast(`Recorded ${peso(r.amount)} paid`); }
-  if (a === 'newLink') { if (!twice('link' + shop)) return; const r = await act({ act: 'newLink', shopId: shop }); if (r?.link) { newLink = { name: shopName(shop), url: `${SHOP_PAGE}#t=${r.link}` }; render(); } }
+  if (a === 'newLink') { if (!twice('link' + shop)) return; const r = await act({ act: 'newLink', shopId: shop }); if (r?.link) { newLink = { name: shopName(shop), url: `${SHOP_PAGE}#t=${r.link}` }; render(); scrollTo(0, 0); } }
 });
 document.addEventListener('submit', async (ev) => {
   ev.preventDefault();
