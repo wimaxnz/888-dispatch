@@ -6,6 +6,7 @@
 <meta name="robots" content="noindex">
 <title>888 Partner Shop</title>
 <link rel="icon" href="logo.png">
+<script src="install.js" data-name="888 Orders" data-icon="icons/orders"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="common.css">
@@ -98,7 +99,9 @@
 
 <script>
 const params = new URLSearchParams(location.hash.slice(1));
-const TOKEN = params.get('t');
+// Remember the shop link so the home-screen app still opens this shop if it starts without the #t= part.
+let TOKEN = params.get('t');
+try { if (TOKEN) localStorage.setItem('888-shop-token', TOKEN); else TOKEN = localStorage.getItem('888-shop-token'); } catch {}
 const API = (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(params.get('api') || '') ? params.get('api') : 'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api');
 const MIN = 60000, HOUR = 60 * MIN;
 const peso = (n) => '₱' + Math.round(n).toLocaleString('en-PH');
