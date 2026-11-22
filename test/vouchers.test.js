@@ -138,3 +138,19 @@ test('buyer currency: order checks', () => {
   assert.match(validateSelf({ ...ok, currency: 'nz' }), /currency/);
   assert.match(validateSelf({ ...ok, qty: 501 }), /500/);
 });
+
+import { shippingPhp, packForCard, giftCardCode } from '../src/vouchers.js';
+
+test('gift card: covers groceries plus the real Shopify delivery fee for the pack weight', () => {
+  assert.equal(shippingPhp(8), 350); assert.equal(shippingPhp(18.3), 550); assert.equal(shippingPhp(30), 850); assert.equal(shippingPhp(40), 1200);
+  for (const card of [1500, 3510, 6400, 12000]) {
+    const { pack, shipPhp } = packForCard(card, items);
+    assert.equal(shipPhp, shippingPhp(pack.kg));
+    assert.ok(pack.total + shipPhp <= card, `₱${card}: ${pack.total} + ${shipPhp}`);
+  }
+});
+
+test('gift card: code is the voucher code without dashes, 8-20 characters', () => {
+  assert.equal(giftCardCode('XSN-ABC-DEF'), 'XSNABCDEF');
+  assert.equal(giftCardCode('AB-CD'), 'ABCD8888');
+});

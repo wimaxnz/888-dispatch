@@ -15,7 +15,7 @@ import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
 import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
-  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP, voucherPhp, validateSelf } from './vouchers.js';
+  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP, voucherPhp, validateSelf, packForCard, giftCardCode } from './vouchers.js';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const catalog = buildCatalog();
@@ -267,13 +267,13 @@ async function packItems() {
   if (productCache && Date.now() - productCache.at < 10 * 60_000) return productCache.items;
   const res = await fetch(`${STORE}/products.json?limit=250`);
   if (!res.ok) throw new Error(`Shop catalogue ${res.status}`);
-  const items = itemsFromProducts((await res.json()).products);
+  const items = itemsFromProducts((await res.json()).products).filter((i: any) => catalog.byVariant.has(String(i.variantId)));
   productCache = { at: Date.now(), items };
   return items;
 }
 const DESIGNS = ['christmas', 'thankyou', 'easter'];
 const designOf = (d: any) => (DESIGNS.includes(String(d)) ? String(d) : 'christmas');
-const publicPack = (pack: any) => ({ total: pack.total, kg: pack.kg, lines: pack.lines.map((l: any) => ({ title: l.title, qty: l.qty, image: l.image })) });
+const publicPack = (pack: any) => ({ total: pack.total, kg: pack.kg, lines: pack.lines.map((l: any) => ({ title: l.title, qty: l.qty, image: l.image, variantId: l.variantId })) });
 
 async function voucherByToken(t: string | null) {
   if (!t || t.length < 20) return null;
@@ -287,7 +287,7 @@ function voucherView(v: any, b: any, now: number) {
   const state = voucherState(v, b, now);
   return {
     code: v.code, state, staffName: v.staff_name ?? '', company: b.company, logo: b.logo ?? null,
-    greeting: b.greeting ?? '', signOff: b.sign_off ?? '', valuePhp: b.budget_php, design: b.design ?? 'christmas', issuedAt: v.issued_at ?? b.paid_at ?? null,
+    greeting: b.greeting ?? '', signOff: b.sign_off ?? '', valuePhp: b.budget_php, design: b.design ?? 'christmas', issuedAt: v.issued_at ?? b.paid_at ?? null, giftCode: v.gift_card_code ?? null, deliveryPhp: b.delivery_php,
     pack: publicPack(b.pack), packUntil: packDeadline(v, b),
     redeemed: state === 'redeemed' ? { at: v.redeemed_at, to: v.recipient?.name ?? '', city: v.recipient?.city ?? '' } : null,
   };
@@ -397,7 +397,10 @@ async function onVoucherAdmin(req: Request, url: URL) {
       const at = new Date().toISOString();
       const { data } = await db.from('voucher_batches').update({ paid: true, paid_at: at }).eq('id', body.batchId).eq('paid', false).select('id');
       if (data?.length) await db.from('vouchers').update({ issued_at: at }).eq('batch_id', body.batchId).is('issued_at', null);
-      return json({ ok: true });
+      return json({ ok: true, cards: await issueGiftCards(body.batchId) });
+    }
+    case 'issueCards': {
+      return json({ ok: true, cards: await issueGiftCards(body.batchId) });
     }
     case 'editBatch': {
       const patch: any = {};
@@ -442,8 +445,33 @@ async function payVoucherBatches(o: any) {
     const full = sum + 0.5 >= Number(b.total_php);
     const at = new Date().toISOString();
     await db.from('voucher_batches').update({ paid_php: sum, shopify_order: String(o.name ?? o.id), ...(full ? { paid: true, paid_at: at } : {}) }).eq('id', batchId);
-    if (full) await db.from('vouchers').update({ issued_at: at }).eq('batch_id', batchId).is('issued_at', null);
+    if (full) { await db.from('vouchers').update({ issued_at: at }).eq('batch_id', batchId).is('issued_at', null); await issueGiftCards(batchId); }
   }
+}
+
+// Each paid voucher becomes a real Shopify gift card (code = voucher code without dashes).
+// Needs app_secrets.shopify_admin_token (custom app with write_gift_cards). Without it nothing happens.
+async function issueGiftCards(batchId: string) {
+  const token = await secret('shopify_admin_token');
+  if (!token || token.startsWith('PASTE')) return { issued: 0, reason: 'no token' };
+  const { data: b } = await db.from('voucher_batches').select('id, company, budget_php, paid').eq('id', batchId).maybeSingle();
+  if (!b?.paid) return { issued: 0, reason: 'not paid' };
+  const { data: vs } = await db.from('vouchers').select('code').eq('batch_id', batchId).is('gift_card_id', null).neq('status', 'cancelled');
+  let issued = 0;
+  for (const v of vs ?? []) {
+    const code = giftCardCode(v.code);
+    try {
+      const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token },
+        body: JSON.stringify({ query: 'mutation($i: GiftCardCreateInput!) { giftCardCreate(input: $i) { giftCard { id } userErrors { field message } } }',
+          variables: { i: { initialValue: String(b.budget_php), code, note: `888 company voucher ${v.code} · ${b.company}` } } }) });
+      const j = await res.json();
+      const id = j?.data?.giftCardCreate?.giftCard?.id;
+      const err = j?.data?.giftCardCreate?.userErrors?.map((e: any) => e.message).join('; ') || j?.errors?.[0]?.message || (res.ok ? '' : `HTTP ${res.status}`);
+      if (id) { await db.from('vouchers').update({ gift_card_id: id, gift_card_code: code, gift_card_error: null }).eq('code', v.code); issued++; }
+      else await db.from('vouchers').update({ gift_card_error: String(err).slice(0, 300) }).eq('code', v.code);
+    } catch (e) { await db.from('vouchers').update({ gift_card_error: String(e).slice(0, 300) }).eq('code', v.code); }
+  }
+  return { issued };
 }
 
 // Today's rate: pesos per 1 unit of the buyer's currency (cached for an hour).
@@ -497,7 +525,8 @@ async function onVoucherBuy(req: Request) {
   const v: any = voucherPhp(body.amount, rate);
   if (v.error) return json({ ok: false, reason: v.error });
   if (body.act === 'preview') {
-    return json({ ok: true, currency, amount: Number(body.amount), rate, budgetPhp: v.php, deliveryPhp: delivery, pack: publicPack(buildPack(v.php - delivery, await packItems())) });
+    const pc = packForCard(v.php, await packItems());
+    return json({ ok: true, currency, amount: Number(body.amount), rate, budgetPhp: v.php, deliveryPhp: pc.shipPhp, pack: publicPack(pc.pack) });
   }
   if (body.act !== 'create') return json({ ok: false, reason: 'Unknown action' });
   const err = validateSelf({ ...body, currency });
@@ -508,7 +537,8 @@ async function onVoucherBuy(req: Request) {
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { count } = await db.from('voucher_batches').select('id', { count: 'exact', head: true }).eq('buyer_email', c.buyer.email).eq('paid', false).gte('created_at', since);
   if ((count ?? 0) >= 8) return json({ ok: false, reason: 'You have several unpaid voucher orders already. Please finish one, or contact us.' });
-  const made: any = await makeBatch(body, { source: 'self', budgetPhp: v.php, delivery, buyer: c.buyer, currency, amount: Number(body.amount), rate,
+  const ship = packForCard(v.php, await packItems()).shipPhp;
+  const made: any = await makeBatch(body, { source: 'self', budgetPhp: v.php, delivery: ship, buyer: c.buyer, currency, amount: Number(body.amount), rate,
     budgetNzd: currency === 'NZD' ? Number(body.amount) : null });
   if (made.error) return json({ ok: false, reason: made.error });
   const items = splitAmount(made.totalPhp).map((s) => ({ id: CREDIT_VARIANTS[s.denom], quantity: s.qty, properties: { [BATCH_PROP]: made.id } }));
@@ -532,14 +562,14 @@ async function onVoucherManage(req: Request, url: URL) {
       if (!data?.length) return json({ ok: false, reason: 'Only unused vouchers can get a new link.' });
     } else return json({ ok: false, reason: 'Unknown action' });
   }
-  const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient').eq('batch_id', b.id).order('created_at');
+  const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient, gift_card_code').eq('batch_id', b.id).order('created_at');
   return json({
     ok: true,
     batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, currency: b.currency, amountLocal: b.amount_local, budgetPhp: b.budget_php, design: b.design ?? 'christmas',
       qty: b.qty, totalPhp: b.total_php, paid: b.paid, paidAt: b.paid_at, order: b.shopify_order, pack: publicPack(b.pack) },
     vouchers: (vs ?? []).map((v: any) => {
       const state = voucherState(v, b, now);
-      return { code: v.code, token: state === 'redeemed' ? null : v.token, staff: v.staff_name, contact: v.staff_contact,
+      return { code: v.code, giftCode: v.gift_card_code ?? null, token: state === 'redeemed' ? null : v.token, staff: v.staff_name, contact: v.staff_contact,
         state, opened: !!v.opened_at, sentTo: v.recipient ? `${v.recipient.name}, ${v.recipient.city}` : null, sentAt: v.redeemed_at };
     }),
   });

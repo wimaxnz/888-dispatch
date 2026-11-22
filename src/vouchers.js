@@ -242,3 +242,26 @@ export function validateSelf(b) {
   if (b.logo && (!/^data:image\/(png|jpeg|webp);base64,/.test(b.logo) || b.logo.length > 400_000)) return 'Logo must be a PNG or JPG under 300 KB.';
   return null;
 }
+
+// ---------- Shopify gift cards ----------
+// Each voucher becomes a real Shopify gift card. The family adds the pack to the
+// cart and pays with the card at Shopify checkout, so the card must cover the
+// groceries AND Shopify's delivery fee for that weight (Philippines rates).
+export const SHIP_TIERS = [[10, 350], [20, 550], [35, 850], [Infinity, 1200]];
+export const shippingPhp = (kg) => SHIP_TIERS.find(([max]) => kg <= max)[1];
+
+// Fill a pack so groceries + delivery fit inside the gift card value.
+export function packForCard(cardPhp, items) {
+  let ship = shippingPhp(0);
+  let pack = buildPack(cardPhp - ship, items);
+  for (let i = 0; i < 4; i++) {
+    const need = shippingPhp(pack.kg);
+    if (need <= ship) break;
+    ship = need;
+    pack = buildPack(cardPhp - ship, items);
+  }
+  return { pack, shipPhp: shippingPhp(pack.kg) };
+}
+
+// Shopify gift card codes: 8-20 letters/digits. "XSN-ABC-DEF" -> "XSNABCDEF".
+export const giftCardCode = (voucher) => String(voucher).replace(/[^A-Z0-9]/gi, '').toUpperCase().padEnd(8, '8').slice(0, 20);
