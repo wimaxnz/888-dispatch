@@ -218,3 +218,27 @@ export function cleanBuyer(b = {}) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) return { error: 'Please add your email, so we can send you the voucher links.' };
   return { buyer: out };
 }
+
+// ---------- Buyer's own currency ----------
+// Buyers abroad choose round amounts in their money (NZ$100, A$100, US$100, €100).
+// Each voucher becomes a fixed peso value at today's rate; the family sees pesos.
+export const MIN_VOUCHER_PHP = 1000;
+export const MAX_VOUCHER_PHP = 100_000;
+
+export function voucherPhp(amount, phpPerUnit) {
+  const a = Number(amount), r = Number(phpPerUnit);
+  if (!(a > 0) || !(r > 0)) return { error: 'Choose a gift value.' };
+  const php = roundTo10(a * r);
+  if (php < MIN_VOUCHER_PHP) return { error: `Each voucher must be worth at least ₱${MIN_VOUCHER_PHP.toLocaleString('en')} so the pack has real groceries in it.`, php };
+  if (php > MAX_VOUCHER_PHP) return { error: 'That value is too high for one voucher. Please contact us for large gifts.', php };
+  return { php };
+}
+
+export function validateSelf(b) {
+  if (!String(b.company ?? '').trim()) return 'Add the company or family name.';
+  const q = Number(b.qty);
+  if (!(Number.isInteger(q) && q >= 1 && q <= 500)) return 'Number of vouchers must be between 1 and 500.';
+  if (!/^[A-Z]{3}$/.test(String(b.currency ?? ''))) return 'Choose your currency.';
+  if (b.logo && (!/^data:image\/(png|jpeg|webp);base64,/.test(b.logo) || b.logo.length > 400_000)) return 'Logo must be a PNG or JPG under 300 KB.';
+  return null;
+}

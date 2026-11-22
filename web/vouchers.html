@@ -66,6 +66,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const peso = (n) => '₱' + Math.round(n).toLocaleString('en-PH');
 const nzd = (n) => 'NZ$' + Number(n).toLocaleString('en-NZ', { maximumFractionDigits: 2 });
 const day = (iso) => iso ? new Date(iso).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+const money = (n, cur) => new Intl.NumberFormat('en', { style: 'currency', currency: cur || 'NZD', maximumFractionDigits: 2 }).format(n);
+const each = (b) => b.amount_local ? money(b.amount_local, b.currency) : nzd(b.budget_nzd);
+const whole = (b) => b.amount_local ? money(b.amount_local * b.qty, b.currency) : nzd(b.qty * b.budget_nzd);
 const link = (token) => `${GIFT}#t=${token}`;
 const STATE = { pack: ['Waiting', 'warn'], redeemed: ['Sent', 'ok'], credit: ['Shop credit', 'info'], not_active: ['Not paid yet', ''], cancelled: ['Cancelled', ''] };
 const DEFAULT_GREETING = `Maligayang Pasko! Thank you for the hard work and care you bring to our team every day. We know your loved ones support you from home, so this Christmas we'd like to share a little of our thanks with them too.`;
@@ -122,7 +125,7 @@ function batchesHtml() {
     ${f.items.length ? `<p class="muted">Items still owed if every waiting voucher is used:</p><div class="table"><table><thead><tr><th>Item</th><th class="r">Qty</th></tr></thead><tbody>${f.items.map((i) => `<tr><td>${esc(i.title)}</td><td class="r">${i.qty}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Nothing owed yet. Paid batches show here.</p>'}
   </section>
   <section class="card"><h2>Batches</h2>${DATA.batches.length ? `<div class="table"><table><thead><tr><th>Company</th><th>Value</th><th class="r">Vouchers</th><th class="r">Opened</th><th class="r">Sent</th><th>Status</th><th></th></tr></thead><tbody>
-    ${DATA.batches.map((b) => `<tr><td><b>${esc(b.company)}</b><br><span class="muted">${esc(b.id)} · ${day(b.created_at)}</span></td><td>${nzd(b.budget_nzd)} <span class="muted">(${peso(b.budget_php)})</span></td>
+    ${DATA.batches.map((b) => `<tr><td><b>${esc(b.company)}</b><br><span class="muted">${esc(b.id)} · ${day(b.created_at)}</span></td><td>${each(b)} <span class="muted">(${peso(b.budget_php)})${b.source === 'self' ? '<br>bought online' : ''}</span></td>
     <td class="r">${b.qty}</td><td class="r">${b.opened}</td><td class="r">${b.redeemed}</td><td>${b.paid ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Awaiting payment</span>'}</td>
     <td><button class="btn small" data-open="${esc(b.id)}">Open</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No batches yet.</p>'}</section>`;
 }
@@ -130,7 +133,7 @@ function batchHtml() {
   const { batch: b, vouchers } = OPEN;
   return `<section class="card"><div class="acts"><h2 style="margin-right:auto">${esc(b.company)}</h2><button class="btn small" id="close">Back to all</button></div>
     ${b.logo ? `<img class="logo-prev" src="${esc(b.logo)}" alt="">` : ''}
-    <p class="muted">${b.qty} vouchers × ${nzd(b.budget_nzd)} = <b>${nzd(b.qty * b.budget_nzd)}</b> to invoice · each ${peso(b.budget_php)} at ₱${b.nzd_to_php}/NZ$ · batch ${esc(b.id)}</p>
+    <p class="muted">${b.qty} vouchers × ${each(b)} = <b>${whole(b)}</b>${b.source === 'self' ? ` · bought online by ${esc(b.buyer_name || '')} ${esc(b.buyer_email || '')}${b.shopify_order ? ' · order ' + esc(b.shopify_order) : ''}` : ' to invoice'} · each ${peso(b.budget_php)} · batch ${esc(b.id)}</p>
     ${b.paid ? `<p><span class="pill ok">Paid ${day(b.paid_at)}</span> The links are live. Packs can be claimed for 3 months from this date.</p>`
       : `<p class="err">Not paid yet. The links show "Almost ready" until you mark the batch as paid.</p><div class="acts"><button class="btn primary" id="paid">Mark as paid: links go live</button></div>`}
     <details><summary>Pack in every voucher (${b.pack.lines.length} lines, ${peso(b.pack.total)})</summary>${packHtml(b.pack, b.budget_php, b.budget_php - b.delivery_php)}</details>
@@ -190,7 +193,7 @@ function wire() {
   const b = OPEN.batch, vs = OPEN.vouchers;
   document.getElementById('close').onclick = () => { OPEN = null; render(); };
   const paid = document.getElementById('paid');
-  if (paid) paid.onclick = async () => { if (!confirm(`Has ${b.company} paid ${nzd(b.qty * b.budget_nzd)}? The links go live now.`)) return; await api('POST', { act: 'markPaid', batchId: b.id }); await load(); toast('Batch is live'); };
+  if (paid) paid.onclick = async () => { if (!confirm(`Has ${b.company} paid ${whole(b)}? The links go live now.`)) return; await api('POST', { act: 'markPaid', batchId: b.id }); await load(); toast('Batch is live'); };
   document.getElementById('ef').onsubmit = async (e) => {
     e.preventDefault(); const f = e.target; const logo = await logoFrom(f.logoFile.files[0]);
     await api('POST', { act: 'editBatch', batchId: b.id, greeting: f.greeting.value, signOff: f.signOff.value, ...(logo ? { logo } : {}) }); await load(); toast('Saved');

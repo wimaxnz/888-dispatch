@@ -15,7 +15,7 @@ import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
 import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
-  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP } from './vouchers.js';
+  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP, voucherPhp, validateSelf } from './vouchers.js';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const catalog = buildCatalog();
@@ -350,7 +350,7 @@ async function onVoucherAdmin(req: Request, url: URL) {
       const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, order_ref, recipient').eq('batch_id', batchId).order('created_at');
       return json({ batch: b, vouchers: (vs ?? []).map((v: any) => ({ ...v, state: voucherState(v, b, now) })) });
     }
-    const { data: bs } = await db.from('voucher_batches').select('id, company, greeting, sign_off, budget_nzd, nzd_to_php, delivery_php, budget_php, pack, qty, paid, paid_at, created_at').order('created_at', { ascending: false });
+    const { data: bs } = await db.from('voucher_batches').select('id, company, greeting, sign_off, budget_nzd, nzd_to_php, delivery_php, budget_php, pack, qty, paid, paid_at, created_at, currency, amount_local, source, buyer_email').order('created_at', { ascending: false });
     const { data: vs } = await db.from('vouchers').select('batch_id, status, issued_at, opened_at');
     const batches = (bs ?? []).map((b: any) => {
       const mine = (vs ?? []).filter((v: any) => v.batch_id === b.id);
@@ -443,9 +443,21 @@ async function payVoucherBatches(o: any) {
   }
 }
 
-async function makeBatch(body: any, opts: { source: string; rate: number; delivery: number; buyer?: any; roundPhp?: boolean }) {
-  const p = priceBatch({ budgetNzd: body.budgetNzd, nzdToPhp: opts.rate, deliveryPhp: opts.delivery });
-  const budgetPhp = opts.roundPhp ? roundTo10(p.budgetPhp) : p.budgetPhp;
+// Today's rate: pesos per 1 unit of the buyer's currency (cached for an hour).
+const fxCache = new Map<string, { at: number; rate: number }>();
+async function phpPer(cur: string) {
+  if (cur === 'PHP') return 1;
+  const hit = fxCache.get(cur);
+  if (hit && Date.now() - hit.at < 3_600_000) return hit.rate;
+  const k = cur.toLowerCase();
+  for (const u of [`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${k}.json`, `https://latest.currency-api.pages.dev/v1/currencies/${k}.json`]) {
+    try { const j = await (await fetch(u)).json(); const r = Number(j?.[k]?.php); if (r > 0) { fxCache.set(cur, { at: Date.now(), rate: r }); return r; } } catch { /* try next */ }
+  }
+  throw new Error('No exchange rate for ' + cur);
+}
+
+async function makeBatch(body: any, opts: { source: string; budgetPhp: number; delivery: number; buyer?: any; currency?: string; amount?: number; rate?: number; budgetNzd?: number | null }) {
+  const budgetPhp = opts.budgetPhp;
   const pack = buildPack(budgetPhp - opts.delivery, await packItems());
   if (!pack.lines.length) return { error: 'Could not make a pack for that value.' };
   const id = `B-${new Date().toISOString().slice(2, 10).replaceAll('-', '')}-${newToken().slice(0, 4).toUpperCase()}`;
@@ -453,7 +465,8 @@ async function makeBatch(body: any, opts: { source: string; rate: number; delive
   const manage = opts.source === 'self' ? newToken() : null;
   const { error } = await db.from('voucher_batches').insert({ id, company: String(body.company).trim().slice(0, 80), logo: body.logo || null,
     greeting: String(body.greeting ?? '').slice(0, 600), sign_off: String(body.signOff ?? '').slice(0, 120),
-    budget_nzd: Number(body.budgetNzd), nzd_to_php: opts.rate, delivery_php: opts.delivery, budget_php: budgetPhp,
+    budget_nzd: opts.budgetNzd ?? null, nzd_to_php: opts.currency === 'NZD' ? opts.rate : null, delivery_php: opts.delivery, budget_php: budgetPhp,
+    currency: opts.currency ?? 'NZD', amount_local: opts.amount ?? null, php_rate: opts.rate ?? null,
     pack, qty, note: String(body.note ?? '').slice(0, 300), source: opts.source,
     buyer_name: opts.buyer?.name ?? null, buyer_email: opts.buyer?.email ?? null, manage_token: manage, total_php: budgetPhp * qty });
   if (error) throw error;
@@ -473,27 +486,30 @@ async function makeBatch(body: any, opts: { source: string; rate: number; delive
 async function onVoucherBuy(req: Request) {
   if (req.method !== 'POST') return json({ error: 'Not found' }, 404);
   const body = await req.json();
-  const rate = VOUCHER_DEFAULTS.nzdToPhp, delivery = VOUCHER_DEFAULTS.deliveryPhp;
+  const delivery = VOUCHER_DEFAULTS.deliveryPhp;
+  const currency = String(body.currency ?? '').toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) return json({ ok: false, reason: 'Choose your currency.' });
+  let rate: number;
+  try { rate = await phpPer(currency); } catch { return json({ ok: false, reason: `We can't take ${currency} right now. Please choose another currency.` }); }
+  const v: any = voucherPhp(body.amount, rate);
+  if (v.error) return json({ ok: false, reason: v.error });
   if (body.act === 'preview') {
-    const n = Number(body.budgetNzd);
-    if (!(n >= VOUCHER_DEFAULTS.minNzd && n <= VOUCHER_DEFAULTS.maxNzd)) return json({ ok: false, reason: `Choose a value between NZ$${VOUCHER_DEFAULTS.minNzd} and NZ$${VOUCHER_DEFAULTS.maxNzd}.` });
-    const budgetPhp = roundTo10(n * rate);
-    return json({ ok: true, budgetPhp, deliveryPhp: delivery, pack: publicPack(buildPack(budgetPhp - delivery, await packItems())) });
+    return json({ ok: true, currency, amount: Number(body.amount), rate, budgetPhp: v.php, deliveryPhp: delivery, pack: publicPack(buildPack(v.php - delivery, await packItems())) });
   }
   if (body.act !== 'create') return json({ ok: false, reason: 'Unknown action' });
-  const err = validateBatch({ ...body, nzdToPhp: rate, deliveryPhp: delivery });
+  const err = validateSelf({ ...body, currency });
   if (err) return json({ ok: false, reason: err });
-  if (Number(body.qty) > SELF_MAX_QTY) return json({ ok: false, reason: `For more than ${SELF_MAX_QTY} vouchers, please contact us and we'll set it up for you.` });
   const c: any = cleanBuyer(body.buyer);
   if (c.error) return json({ ok: false, reason: c.error });
   // A little brake on abuse: at most 8 unpaid orders per email per day.
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { count } = await db.from('voucher_batches').select('id', { count: 'exact', head: true }).eq('buyer_email', c.buyer.email).eq('paid', false).gte('created_at', since);
   if ((count ?? 0) >= 8) return json({ ok: false, reason: 'You have several unpaid voucher orders already. Please finish one, or contact us.' });
-  const made: any = await makeBatch(body, { source: 'self', rate, delivery, buyer: c.buyer, roundPhp: true });
+  const made: any = await makeBatch(body, { source: 'self', budgetPhp: v.php, delivery, buyer: c.buyer, currency, amount: Number(body.amount), rate,
+    budgetNzd: currency === 'NZD' ? Number(body.amount) : null });
   if (made.error) return json({ ok: false, reason: made.error });
   const items = splitAmount(made.totalPhp).map((s) => ({ id: CREDIT_VARIANTS[s.denom], quantity: s.qty, properties: { [BATCH_PROP]: made.id } }));
-  return json({ ok: true, batchId: made.id, manageToken: made.manage, budgetPhp: made.budgetPhp, totalPhp: made.totalPhp, items });
+  return json({ ok: true, batchId: made.id, manageToken: made.manage, budgetPhp: made.budgetPhp, totalPhp: made.totalPhp, currency, amount: Number(body.amount), items });
 }
 
 async function onVoucherManage(req: Request, url: URL) {
@@ -516,7 +532,7 @@ async function onVoucherManage(req: Request, url: URL) {
   const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient').eq('batch_id', b.id).order('created_at');
   return json({
     ok: true,
-    batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, budgetPhp: b.budget_php,
+    batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, currency: b.currency, amountLocal: b.amount_local, budgetPhp: b.budget_php,
       qty: b.qty, totalPhp: b.total_php, paid: b.paid, paidAt: b.paid_at, order: b.shopify_order, pack: publicPack(b.pack) },
     vouchers: (vs ?? []).map((v: any) => {
       const state = voucherState(v, b, now);

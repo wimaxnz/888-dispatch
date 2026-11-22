@@ -121,3 +121,20 @@ test('self-service: buyer needs an email', () => {
   assert.match(cleanBuyer({ name: 'Ana' }).error, /email/);
   assert.equal(cleanBuyer({ email: ' Ana@Example.com ' }).buyer.email, 'ana@example.com');
 });
+
+import { voucherPhp, validateSelf } from '../src/vouchers.js';
+
+test('buyer currency: NZ$100 / A$100 / US$100 become a fixed peso value, rounded up to ₱10', () => {
+  assert.deepEqual(voucherPhp(100, 35.12), { php: 3520 });
+  assert.deepEqual(voucherPhp(100, 58.4), { php: 5840 });
+  assert.match(voucherPhp(10, 35).error, /at least/);
+  assert.match(voucherPhp(5000, 58).error, /too high/);
+  assert.match(voucherPhp(0, 35).error, /Choose/);
+});
+
+test('buyer currency: order checks', () => {
+  const ok = { company: 'Xtra Staff', qty: 10, currency: 'NZD' };
+  assert.equal(validateSelf(ok), null);
+  assert.match(validateSelf({ ...ok, currency: 'nz' }), /currency/);
+  assert.match(validateSelf({ ...ok, qty: 501 }), /500/);
+});
