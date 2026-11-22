@@ -303,42 +303,9 @@ async function onVoucher(req: Request, url: URL) {
     if (!v.opened_at) await db.from('vouchers').update({ opened_at: new Date().toISOString() }).eq('code', v.code);
     return json(voucherView(v, b, now));
   }
-  const state = voucherState(v, b, now);
-  if (state !== 'pack') return json({ ok: false, reason: state === 'redeemed' ? 'This gift has already been sent.' : state === 'credit' ? 'The pack time has ended, so this voucher is now shop credit. Please message 888 Grocery to use it.' : 'This voucher is not active yet.', view: voucherView(v, b, now) });
-  const c: any = cleanRecipient(body.recipient);
-  if (c.error) return json({ ok: false, reason: c.error });
-  const r = c.recipient;
-  // Claim it first, so two taps (or two people) can never send it twice.
-  const { data: claimed } = await db.from('vouchers').update({ status: 'redeeming' }).eq('code', v.code).eq('status', 'issued').select('code');
-  if (!claimed?.length) return json({ ok: false, reason: 'This gift has already been sent.' });
-  try {
-    const ref = `V-${v.code}`;
-    const recipient = { name: r.name, phone: r.phone, address: [r.address, r.barangay].filter(Boolean).join(', '), city: r.city, province: r.province, zip: r.zip };
-    const result: any = await withState(({ d, extra }) => {
-      const pkg = voucherPackage(v.code, b, extra.payout);
-      const lines = [{ title: `${b.company} gift pack (voucher ${v.code})`, qty: 1 }];
-      const orderExtra = { ref, voucher: v.code, company: b.company, recipient, buyer: { country: b.company }, note: r.note, lines };
-      const where = locate({ city: r.city, province: r.province });
-      if (!where) {
-        const m = { id: `M-${ref}`, ref, paidAt: now, reason: `Gift voucher: couldn't place the address (${r.city}, ${r.province})`, recipient, buyer: orderExtra.buyer, note: r.note,
-          items: pkg.items.map((i: any) => ({ title: i.name, qty: i.qty })), status: 'todo' };
-        extra.manual = [...(extra.manual ?? []), m];
-        return { manual: m.id, ownerText: manualText(m, extra.ownerPhone) };
-      }
-      if (d.orders.has(ref)) return { exists: ref };
-      d.packages.set(pkg.id, pkg);
-      d.placeOrder({ id: ref, packageId: pkg.id, qty: 1, address: { lat: where.lat, lng: where.lng, island: where.island }, paidAt: now,
-        extra: { ...orderExtra, locatedBy: where.source, shopifyId: null } });
-      return { dispatched: ref };
-    });
-    if (result.ownerText) { try { await sendTexts([result.ownerText]); } catch (e) { console.error('sms', e); } }
-    const at = new Date().toISOString();
-    await db.from('vouchers').update({ status: 'redeemed', redeemed_at: at, order_ref: ref, recipient: r }).eq('code', v.code);
-    return json({ ok: true, view: voucherView({ ...v, status: 'redeemed', redeemed_at: at, recipient: r }, b, Date.now()) });
-  } catch (e) {
-    await db.from('vouchers').update({ status: 'issued' }).eq('code', v.code).eq('status', 'redeeming');
-    throw e;
-  }
+  // Shopify only: a voucher is redeemed by entering its Shopify gift card code at
+  // Shopify checkout. There is no other way to send a gift.
+  return json({ ok: false, reason: 'Please redeem this gift at checkout with your Shopify gift card code.', view: voucherView(v, b, now) }, 405);
 }
 
 async function onVoucherAdmin(req: Request, url: URL) {
