@@ -463,7 +463,7 @@ async function issueGiftCards(batchId: string) {
     try {
       const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token },
         body: JSON.stringify({ query: 'mutation($i: GiftCardCreateInput!) { giftCardCreate(input: $i) { giftCard { id } userErrors { field message } } }',
-          variables: { i: { initialValue: String(b.budget_php), code, note: `888 company voucher ${v.code} · ${b.company}` } } }) });
+          variables: { i: { initialAmount: { amount: String(b.budget_php), currencyCode: 'PHP' }, code, note: `888 company voucher ${v.code} · ${b.company}` } } }) });
       const j = await res.json();
       const id = j?.data?.giftCardCreate?.giftCard?.id;
       const err = j?.data?.giftCardCreate?.userErrors?.map((e: any) => e.message).join('; ') || j?.errors?.[0]?.message || (res.ok ? '' : `HTTP ${res.status}`);
