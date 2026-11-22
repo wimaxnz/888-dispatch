@@ -451,9 +451,26 @@ async function payVoucherBatches(o: any) {
 
 // Each paid voucher becomes a real Shopify gift card (code = voucher code without dashes).
 // Needs app_secrets.shopify_admin_token (custom app with write_gift_cards). Without it nothing happens.
+// Shopify Admin access: a Dev Dashboard app (client credentials grant, token valid 24 h),
+// or an older admin-created app's fixed token. Secrets live only in app_secrets.
+let adminTokenCache: { token: string; until: number } | null = null;
+async function shopifyAdminToken(): Promise<string | null> {
+  const fixed = await secret('shopify_admin_token');
+  if (fixed && !fixed.startsWith('PASTE')) return fixed;
+  if (adminTokenCache && Date.now() < adminTokenCache.until) return adminTokenCache.token;
+  const id = await secret('shopify_client_id'), sec = await secret('shopify_client_secret');
+  if (!id || !sec || id.startsWith('PASTE') || sec.startsWith('PASTE')) return null;
+  const res = await fetch(`${STORE}/admin/oauth/access_token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: id, client_secret: sec }) });
+  if (!res.ok) { console.error('shopify token', res.status); return null; }
+  const j = await res.json();
+  adminTokenCache = { token: j.access_token, until: Date.now() + Math.max(60, Number(j.expires_in ?? 86400) - 600) * 1000 };
+  return adminTokenCache.token;
+}
+
 async function issueGiftCards(batchId: string) {
-  const token = await secret('shopify_admin_token');
-  if (!token || token.startsWith('PASTE')) return { issued: 0, reason: 'no token' };
+  const token = await shopifyAdminToken();
+  if (!token) return { issued: 0, reason: 'no Shopify access yet' };
   const { data: b } = await db.from('voucher_batches').select('id, company, budget_php, paid').eq('id', batchId).maybeSingle();
   if (!b?.paid) return { issued: 0, reason: 'not paid' };
   const { data: vs } = await db.from('vouchers').select('code').eq('batch_id', batchId).is('gift_card_id', null).neq('status', 'cancelled');
