@@ -3,6 +3,8 @@
 //   POST /api/tick             every minute from pg_cron (x-cron-key)
 //   GET/POST /api/shop         partner shop screen (secret link token)
 //   GET/POST /api/admin        owner screen (x-admin-key)
+//   GET/POST /api/voucher      company gift voucher welcome page (secret link)
+//   GET/POST /api/vadmin       owner: company voucher batches (x-admin-key)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { Dispatcher } from './engine.js';
 import { config as DEFAULT_CONFIG } from './config.js';
@@ -12,6 +14,8 @@ import { buildCatalog } from './catalog.js';
 import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
+import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
+  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS } from './vouchers.js';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const catalog = buildCatalog();
@@ -255,6 +259,169 @@ async function onAdmin(req: Request, url: URL) {
   return json(out);
 }
 
+// ---------- Company gift vouchers ----------
+const STORE = 'https://3vyvyi-iq.myshopify.com';
+let productCache: { at: number; items: any[] } | null = null;
+async function packItems() {
+  if (productCache && Date.now() - productCache.at < 10 * 60_000) return productCache.items;
+  const res = await fetch(`${STORE}/products.json?limit=250`);
+  if (!res.ok) throw new Error(`Shop catalogue ${res.status}`);
+  const items = itemsFromProducts((await res.json()).products);
+  productCache = { at: Date.now(), items };
+  return items;
+}
+const publicPack = (pack: any) => ({ total: pack.total, kg: pack.kg, lines: pack.lines.map((l: any) => ({ title: l.title, qty: l.qty, image: l.image })) });
+
+async function voucherByToken(t: string | null) {
+  if (!t || t.length < 20) return null;
+  const { data: v } = await db.from('vouchers').select('*').eq('token', t).maybeSingle();
+  if (!v) return null;
+  const { data: b } = await db.from('voucher_batches').select('*').eq('id', v.batch_id).maybeSingle();
+  return b ? { v, b } : null;
+}
+
+function voucherView(v: any, b: any, now: number) {
+  const state = voucherState(v, b, now);
+  return {
+    code: v.code, state, staffName: v.staff_name ?? '', company: b.company, logo: b.logo ?? null,
+    greeting: b.greeting ?? '', signOff: b.sign_off ?? '', valuePhp: b.budget_php,
+    pack: publicPack(b.pack), packUntil: packDeadline(v, b),
+    redeemed: state === 'redeemed' ? { at: v.redeemed_at, to: v.recipient?.name ?? '', city: v.recipient?.city ?? '' } : null,
+  };
+}
+
+async function onVoucher(req: Request, url: URL) {
+  const body = req.method === 'POST' ? await req.json() : {};
+  const found = await voucherByToken(body.t ?? url.searchParams.get('t'));
+  if (!found) return json({ error: 'We could not find this gift voucher. Please check the link, or message 888 Grocery.' }, 404);
+  const { v, b } = found;
+  const now = Date.now();
+  if (req.method === 'GET') {
+    if (!v.opened_at) await db.from('vouchers').update({ opened_at: new Date().toISOString() }).eq('code', v.code);
+    return json(voucherView(v, b, now));
+  }
+  const state = voucherState(v, b, now);
+  if (state !== 'pack') return json({ ok: false, reason: state === 'redeemed' ? 'This gift has already been sent.' : state === 'credit' ? 'The pack time has ended, so this voucher is now shop credit. Please message 888 Grocery to use it.' : 'This voucher is not active yet.', view: voucherView(v, b, now) });
+  const c: any = cleanRecipient(body.recipient);
+  if (c.error) return json({ ok: false, reason: c.error });
+  const r = c.recipient;
+  // Claim it first, so two taps (or two people) can never send it twice.
+  const { data: claimed } = await db.from('vouchers').update({ status: 'redeeming' }).eq('code', v.code).eq('status', 'issued').select('code');
+  if (!claimed?.length) return json({ ok: false, reason: 'This gift has already been sent.' });
+  try {
+    const ref = `V-${v.code}`;
+    const recipient = { name: r.name, phone: r.phone, address: [r.address, r.barangay].filter(Boolean).join(', '), city: r.city, province: r.province, zip: r.zip };
+    const result: any = await withState(({ d, extra }) => {
+      const pkg = voucherPackage(v.code, b, extra.payout);
+      const lines = [{ title: `${b.company} gift pack (voucher ${v.code})`, qty: 1 }];
+      const orderExtra = { ref, voucher: v.code, company: b.company, recipient, buyer: { country: b.company }, note: r.note, lines };
+      const where = locate({ city: r.city, province: r.province });
+      if (!where) {
+        const m = { id: `M-${ref}`, ref, paidAt: now, reason: `Gift voucher: couldn't place the address (${r.city}, ${r.province})`, recipient, buyer: orderExtra.buyer, note: r.note,
+          items: pkg.items.map((i: any) => ({ title: i.name, qty: i.qty })), status: 'todo' };
+        extra.manual = [...(extra.manual ?? []), m];
+        return { manual: m.id, ownerText: manualText(m, extra.ownerPhone) };
+      }
+      if (d.orders.has(ref)) return { exists: ref };
+      d.packages.set(pkg.id, pkg);
+      d.placeOrder({ id: ref, packageId: pkg.id, qty: 1, address: { lat: where.lat, lng: where.lng, island: where.island }, paidAt: now,
+        extra: { ...orderExtra, locatedBy: where.source, shopifyId: null } });
+      return { dispatched: ref };
+    });
+    if (result.ownerText) { try { await sendTexts([result.ownerText]); } catch (e) { console.error('sms', e); } }
+    const at = new Date().toISOString();
+    await db.from('vouchers').update({ status: 'redeemed', redeemed_at: at, order_ref: ref, recipient: r }).eq('code', v.code);
+    return json({ ok: true, view: voucherView({ ...v, status: 'redeemed', redeemed_at: at, recipient: r }, b, Date.now()) });
+  } catch (e) {
+    await db.from('vouchers').update({ status: 'issued' }).eq('code', v.code).eq('status', 'redeeming');
+    throw e;
+  }
+}
+
+async function onVoucherAdmin(req: Request, url: URL) {
+  if (!same(req.headers.get('x-admin-key'), await secret('admin_key'))) return json({ error: 'Wrong admin key' }, 403);
+  const now = Date.now();
+  if (req.method === 'GET') {
+    const batchId = url.searchParams.get('batch');
+    if (batchId) {
+      const { data: b } = await db.from('voucher_batches').select('*').eq('id', batchId).maybeSingle();
+      if (!b) return json({ error: 'No such batch' }, 404);
+      const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, order_ref, recipient').eq('batch_id', batchId).order('created_at');
+      return json({ batch: b, vouchers: (vs ?? []).map((v: any) => ({ ...v, state: voucherState(v, b, now) })) });
+    }
+    const { data: bs } = await db.from('voucher_batches').select('id, company, greeting, sign_off, budget_nzd, nzd_to_php, delivery_php, budget_php, pack, qty, paid, paid_at, created_at').order('created_at', { ascending: false });
+    const { data: vs } = await db.from('vouchers').select('batch_id, status, issued_at, opened_at');
+    const batches = (bs ?? []).map((b: any) => {
+      const mine = (vs ?? []).filter((v: any) => v.batch_id === b.id);
+      const count = (st: string) => mine.filter((v: any) => voucherState(v, b, now) === st).length;
+      return { ...b, opened: mine.filter((v: any) => v.opened_at).length, waiting: count('pack'), redeemed: count('redeemed'), credit: count('credit') };
+    });
+    return json({ batches, forecast: forecast(bs ?? [], vs ?? [], now), defaults: VOUCHER_DEFAULTS });
+  }
+  const body = await req.json();
+  switch (body.act) {
+    case 'preview': {
+      const rate = Number(body.nzdToPhp) || VOUCHER_DEFAULTS.nzdToPhp, delivery = body.deliveryPhp ?? VOUCHER_DEFAULTS.deliveryPhp;
+      const p = priceBatch({ budgetNzd: body.budgetNzd, nzdToPhp: rate, deliveryPhp: delivery });
+      if (!(p.goodsPhp > 300)) return json({ ok: false, reason: 'That value is too small for a pack after delivery.' });
+      return json({ ok: true, ...p, pack: buildPack(p.goodsPhp, await packItems()) });
+    }
+    case 'create': {
+      const err = validateBatch(body);
+      if (err) return json({ ok: false, reason: err });
+      const p = priceBatch(body);
+      const pack = buildPack(p.goodsPhp, await packItems());
+      if (!pack.lines.length) return json({ ok: false, reason: 'Could not make a pack for that value.' });
+      const id = `B-${new Date().toISOString().slice(2, 10).replaceAll('-', '')}-${newToken().slice(0, 4).toUpperCase()}`;
+      const { error } = await db.from('voucher_batches').insert({ id, company: String(body.company).trim().slice(0, 80), logo: body.logo || null,
+        greeting: String(body.greeting ?? '').slice(0, 600), sign_off: String(body.signOff ?? '').slice(0, 120),
+        budget_nzd: Number(body.budgetNzd), nzd_to_php: Number(body.nzdToPhp), delivery_php: Number(body.deliveryPhp), budget_php: p.budgetPhp,
+        pack, qty: Number(body.qty), note: String(body.note ?? '').slice(0, 300) });
+      if (error) throw error;
+      const staff = Array.isArray(body.staff) ? body.staff : [];
+      const prefix = prefixFor(body.company);
+      const rows = [];
+      for (let i = 0; i < Number(body.qty); i++) {
+        const s = staff[i] ?? {};
+        rows.push({ code: voucherCode(prefix, crypto.getRandomValues(new Uint8Array(6))), token: newToken(), batch_id: id,
+          staff_name: String(s.name ?? '').slice(0, 80) || null, staff_contact: String(s.contact ?? '').slice(0, 120) || null });
+      }
+      const { error: e2 } = await db.from('vouchers').insert(rows);
+      if (e2) { await db.from('voucher_batches').delete().eq('id', id); throw e2; }
+      return json({ ok: true, batchId: id });
+    }
+    case 'markPaid': {
+      const at = new Date().toISOString();
+      const { data } = await db.from('voucher_batches').update({ paid: true, paid_at: at }).eq('id', body.batchId).eq('paid', false).select('id');
+      if (data?.length) await db.from('vouchers').update({ issued_at: at }).eq('batch_id', body.batchId).is('issued_at', null);
+      return json({ ok: true });
+    }
+    case 'editBatch': {
+      const patch: any = {};
+      if (typeof body.greeting === 'string') patch.greeting = body.greeting.slice(0, 600);
+      if (typeof body.signOff === 'string') patch.sign_off = body.signOff.slice(0, 120);
+      if (typeof body.company === 'string' && body.company.trim()) patch.company = body.company.trim().slice(0, 80);
+      if (body.logo === null || (typeof body.logo === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(body.logo) && body.logo.length <= 400_000)) patch.logo = body.logo;
+      await db.from('voucher_batches').update(patch).eq('id', body.batchId);
+      return json({ ok: true });
+    }
+    case 'staff': {
+      await db.from('vouchers').update({ staff_name: String(body.name ?? '').slice(0, 80) || null, staff_contact: String(body.contact ?? '').slice(0, 120) || null }).eq('code', body.code);
+      return json({ ok: true });
+    }
+    case 'cancel': {
+      await db.from('vouchers').update({ status: 'cancelled' }).eq('code', body.code).eq('status', 'issued');
+      return json({ ok: true });
+    }
+    case 'newLink': {
+      const token = newToken();
+      const { data } = await db.from('vouchers').update({ token, opened_at: null }).eq('code', body.code).eq('status', 'issued').select('code');
+      return json(data?.length ? { ok: true, token } : { ok: false, reason: 'Only unused vouchers can get a new link.' });
+    }
+    default: return json({ ok: false, reason: 'Unknown action' });
+  }
+}
+
 // ---------- Timer ----------
 async function onTick(req: Request) {
   if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
@@ -271,6 +438,8 @@ Deno.serve(async (req) => {
     if (path === '/tick' && req.method === 'POST') return await onTick(req);
     if (path === '/shop') return await onShop(req, url);
     if (path === '/admin') return await onAdmin(req, url);
+    if (path === '/voucher') return await onVoucher(req, url);
+    if (path === '/vadmin') return await onVoucherAdmin(req, url);
     if (path === '/health') return json({ ok: true, at: new Date().toISOString() });
     return json({ error: 'Not found' }, 404);
   } catch (e) {
