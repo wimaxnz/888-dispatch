@@ -96,3 +96,28 @@ test('forecast adds up the items still owed', () => {
   assert.equal(f.open, 2); assert.equal(f.redeemed, 1);
   assert.deepEqual(f.items.map((i) => [i.title, i.qty]), [['Noodles', 4], ['Rice', 2]]);
 });
+
+import { splitAmount, voucherPayments, roundTo10, cleanBuyer, BATCH_PROP } from '../src/vouchers.js';
+
+test('self-service: totals split into ₱1,000 / ₱100 / ₱10 credit and add back up', () => {
+  assert.deepEqual(splitAmount(163_230), [{ denom: 1000, qty: 163 }, { denom: 100, qty: 2 }, { denom: 10, qty: 3 }]);
+  assert.deepEqual(splitAmount(2720), [{ denom: 1000, qty: 2 }, { denom: 100, qty: 7 }, { denom: 10, qty: 2 }]);
+  assert.throws(() => splitAmount(2725));
+  assert.equal(roundTo10(2720.4), 2730);
+  assert.equal(roundTo10(2720), 2720);
+});
+
+test('self-service: a paid order is matched to its batch by the hidden line property', () => {
+  const order = { line_items: [
+    { price: '1000.00', quantity: 2, properties: [{ name: BATCH_PROP, value: 'B-1' }] },
+    { price: '100.00', quantity: 7, properties: [{ name: BATCH_PROP, value: 'B-1' }] },
+    { price: '10.00', quantity: 2, properties: [{ name: BATCH_PROP, value: 'B-1' }] },
+    { price: '1499.86', quantity: 1, properties: [] },
+  ] };
+  assert.deepEqual([...voucherPayments(order)], [['B-1', 2720]]);
+});
+
+test('self-service: buyer needs an email', () => {
+  assert.match(cleanBuyer({ name: 'Ana' }).error, /email/);
+  assert.equal(cleanBuyer({ email: ' Ana@Example.com ' }).buyer.email, 'ana@example.com');
+});

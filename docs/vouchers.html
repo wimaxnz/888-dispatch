@@ -60,7 +60,7 @@ td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle 
 <div class="toast" id="toast" hidden></div>
 <script>
 const API = 'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api';
-const GIFT = new URL('gift.html', location.href).href.split('#')[0];
+const GIFT = 'https://888grocery.com/pages/gift';
 const view = document.getElementById('view');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const peso = (n) => '₱' + Math.round(n).toLocaleString('en-PH');

@@ -181,3 +181,40 @@ export function forecast(batches, vouchers, now) {
   }
   return { open, redeemed, credit, items: [...need.values()].sort((a, b) => b.qty - a.qty) };
 }
+
+// ---------- Self-service buying (the company pays in Shopify checkout) ----------
+// The "Gift voucher credit" product has three variants (₱1,000 / ₱100 / ₱10).
+// A batch total is paid as a mix of them, all tagged with the batch id.
+export const DENOMS = [1000, 100, 10];
+export const BATCH_PROP = '_voucher_batch';
+
+// Self-service values are whole ₱10 steps, so the total splits exactly.
+export const roundTo10 = (php) => Math.ceil(Number(php) / 10) * 10;
+
+export function splitAmount(totalPhp) {
+  let left = Math.round(totalPhp);
+  if (left % 10) throw new Error('Total must be a multiple of ₱10');
+  const out = [];
+  for (const d of DENOMS) { const q = Math.floor(left / d); if (q) out.push({ denom: d, qty: q }); left -= q * d; }
+  return out;
+}
+
+// From a paid Shopify order: how much was paid for each voucher batch.
+export function voucherPayments(order) {
+  const by = new Map();
+  for (const li of order.line_items ?? []) {
+    const p = (li.properties ?? []).find((x) => x.name === BATCH_PROP);
+    if (!p?.value) continue;
+    const paid = Number(li.price) * Number(li.quantity);
+    by.set(String(p.value), Math.round(((by.get(String(p.value)) ?? 0) + paid) * 100) / 100);
+  }
+  return by;
+}
+
+// A buyer's own details, checked before anything is made.
+export function cleanBuyer(b = {}) {
+  const s = (x, n) => String(x ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const out = { name: s(b.name, 80), email: s(b.email, 120).toLowerCase() };
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) return { error: 'Please add your email, so we can send you the voucher links.' };
+  return { buyer: out };
+}

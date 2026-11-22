@@ -15,7 +15,7 @@ import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
 import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
-  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS } from './vouchers.js';
+  voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP } from './vouchers.js';
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } });
 const catalog = buildCatalog();
@@ -117,6 +117,7 @@ async function onShopify(req: Request) {
   const o = JSON.parse(raw);
   const { error: dupe } = await db.from('shopify_orders').insert({ shopify_id: o.id, name: o.name, payload: o });
   if (dupe) return json({ ok: true, duplicate: true }); // Shopify retries: already have it
+  try { await payVoucherBatches(o); } catch (e) { console.error('voucher payment', e); }
   const result = await withState(({ d, extra }) => {
     const r: any = fromShopify(o, catalog, extra.payout ?? PAYOUT);
     if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, extra.ownerPhone) }; }
@@ -422,6 +423,109 @@ async function onVoucherAdmin(req: Request, url: URL) {
   }
 }
 
+// ---------- Self-service: companies buy vouchers themselves ----------
+//   POST /api/vbuy      preview a pack, or make an unpaid batch + the cart lines to pay for it
+//   GET/POST /api/vmanage  the buyer's own voucher page (secret manage link)
+// The batch goes live when Shopify's "order payment" webhook shows it paid.
+const CREDIT_VARIANTS: Record<number, number> = { 1000: 44605447897149, 100: 44605447929917, 10: 44605447962685 };
+const SELF_MAX_QTY = 500;
+
+async function payVoucherBatches(o: any) {
+  const paid = voucherPayments(o);
+  for (const [batchId, amount] of paid) {
+    const { data: b } = await db.from('voucher_batches').select('id, paid, total_php, paid_php').eq('id', batchId).maybeSingle();
+    if (!b || b.paid) continue;
+    const sum = Number(b.paid_php ?? 0) + amount;
+    const full = sum + 0.5 >= Number(b.total_php);
+    const at = new Date().toISOString();
+    await db.from('voucher_batches').update({ paid_php: sum, shopify_order: String(o.name ?? o.id), ...(full ? { paid: true, paid_at: at } : {}) }).eq('id', batchId);
+    if (full) await db.from('vouchers').update({ issued_at: at }).eq('batch_id', batchId).is('issued_at', null);
+  }
+}
+
+async function makeBatch(body: any, opts: { source: string; rate: number; delivery: number; buyer?: any; roundPhp?: boolean }) {
+  const p = priceBatch({ budgetNzd: body.budgetNzd, nzdToPhp: opts.rate, deliveryPhp: opts.delivery });
+  const budgetPhp = opts.roundPhp ? roundTo10(p.budgetPhp) : p.budgetPhp;
+  const pack = buildPack(budgetPhp - opts.delivery, await packItems());
+  if (!pack.lines.length) return { error: 'Could not make a pack for that value.' };
+  const id = `B-${new Date().toISOString().slice(2, 10).replaceAll('-', '')}-${newToken().slice(0, 4).toUpperCase()}`;
+  const qty = Number(body.qty);
+  const manage = opts.source === 'self' ? newToken() : null;
+  const { error } = await db.from('voucher_batches').insert({ id, company: String(body.company).trim().slice(0, 80), logo: body.logo || null,
+    greeting: String(body.greeting ?? '').slice(0, 600), sign_off: String(body.signOff ?? '').slice(0, 120),
+    budget_nzd: Number(body.budgetNzd), nzd_to_php: opts.rate, delivery_php: opts.delivery, budget_php: budgetPhp,
+    pack, qty, note: String(body.note ?? '').slice(0, 300), source: opts.source,
+    buyer_name: opts.buyer?.name ?? null, buyer_email: opts.buyer?.email ?? null, manage_token: manage, total_php: budgetPhp * qty });
+  if (error) throw error;
+  const staff = Array.isArray(body.staff) ? body.staff : [];
+  const prefix = prefixFor(body.company);
+  const rows = [];
+  for (let i = 0; i < qty; i++) {
+    const s = staff[i] ?? {};
+    rows.push({ code: voucherCode(prefix, crypto.getRandomValues(new Uint8Array(6))), token: newToken(), batch_id: id,
+      staff_name: String(s.name ?? '').slice(0, 80) || null, staff_contact: String(s.contact ?? '').slice(0, 120) || null });
+  }
+  const { error: e2 } = await db.from('vouchers').insert(rows);
+  if (e2) { await db.from('voucher_batches').delete().eq('id', id); throw e2; }
+  return { id, manage, budgetPhp, totalPhp: budgetPhp * qty };
+}
+
+async function onVoucherBuy(req: Request) {
+  if (req.method !== 'POST') return json({ error: 'Not found' }, 404);
+  const body = await req.json();
+  const rate = VOUCHER_DEFAULTS.nzdToPhp, delivery = VOUCHER_DEFAULTS.deliveryPhp;
+  if (body.act === 'preview') {
+    const n = Number(body.budgetNzd);
+    if (!(n >= VOUCHER_DEFAULTS.minNzd && n <= VOUCHER_DEFAULTS.maxNzd)) return json({ ok: false, reason: `Choose a value between NZ$${VOUCHER_DEFAULTS.minNzd} and NZ$${VOUCHER_DEFAULTS.maxNzd}.` });
+    const budgetPhp = roundTo10(n * rate);
+    return json({ ok: true, budgetPhp, deliveryPhp: delivery, pack: publicPack(buildPack(budgetPhp - delivery, await packItems())) });
+  }
+  if (body.act !== 'create') return json({ ok: false, reason: 'Unknown action' });
+  const err = validateBatch({ ...body, nzdToPhp: rate, deliveryPhp: delivery });
+  if (err) return json({ ok: false, reason: err });
+  if (Number(body.qty) > SELF_MAX_QTY) return json({ ok: false, reason: `For more than ${SELF_MAX_QTY} vouchers, please contact us and we'll set it up for you.` });
+  const c: any = cleanBuyer(body.buyer);
+  if (c.error) return json({ ok: false, reason: c.error });
+  // A little brake on abuse: at most 8 unpaid orders per email per day.
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { count } = await db.from('voucher_batches').select('id', { count: 'exact', head: true }).eq('buyer_email', c.buyer.email).eq('paid', false).gte('created_at', since);
+  if ((count ?? 0) >= 8) return json({ ok: false, reason: 'You have several unpaid voucher orders already. Please finish one, or contact us.' });
+  const made: any = await makeBatch(body, { source: 'self', rate, delivery, buyer: c.buyer, roundPhp: true });
+  if (made.error) return json({ ok: false, reason: made.error });
+  const items = splitAmount(made.totalPhp).map((s) => ({ id: CREDIT_VARIANTS[s.denom], quantity: s.qty, properties: { [BATCH_PROP]: made.id } }));
+  return json({ ok: true, batchId: made.id, manageToken: made.manage, budgetPhp: made.budgetPhp, totalPhp: made.totalPhp, items });
+}
+
+async function onVoucherManage(req: Request, url: URL) {
+  const body = req.method === 'POST' ? await req.json() : {};
+  const m = body.m ?? url.searchParams.get('m');
+  if (!m || m.length < 20) return json({ error: 'This voucher page link is not valid.' }, 404);
+  const { data: b } = await db.from('voucher_batches').select('*').eq('manage_token', m).maybeSingle();
+  if (!b) return json({ error: 'This voucher page link is not valid.' }, 404);
+  const now = Date.now();
+  if (req.method === 'POST') {
+    const owns = async (code: string) => { const { data } = await db.from('vouchers').select('code').eq('code', code).eq('batch_id', b.id).maybeSingle(); return !!data; };
+    if (!(await owns(String(body.code)))) return json({ ok: false, reason: 'Not one of your vouchers.' });
+    if (body.act === 'staff') {
+      await db.from('vouchers').update({ staff_name: String(body.name ?? '').slice(0, 80) || null, staff_contact: String(body.contact ?? '').slice(0, 120) || null }).eq('code', body.code);
+    } else if (body.act === 'newLink') {
+      const { data } = await db.from('vouchers').update({ token: newToken(), opened_at: null }).eq('code', body.code).eq('status', 'issued').select('code');
+      if (!data?.length) return json({ ok: false, reason: 'Only unused vouchers can get a new link.' });
+    } else return json({ ok: false, reason: 'Unknown action' });
+  }
+  const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient').eq('batch_id', b.id).order('created_at');
+  return json({
+    ok: true,
+    batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, budgetPhp: b.budget_php,
+      qty: b.qty, totalPhp: b.total_php, paid: b.paid, paidAt: b.paid_at, order: b.shopify_order, pack: publicPack(b.pack) },
+    vouchers: (vs ?? []).map((v: any) => {
+      const state = voucherState(v, b, now);
+      return { code: v.code, token: state === 'redeemed' ? null : v.token, staff: v.staff_name, contact: v.staff_contact,
+        state, opened: !!v.opened_at, sentTo: v.recipient ? `${v.recipient.name}, ${v.recipient.city}` : null, sentAt: v.redeemed_at };
+    }),
+  });
+}
+
 // ---------- Timer ----------
 async function onTick(req: Request) {
   if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
@@ -440,6 +544,8 @@ Deno.serve(async (req) => {
     if (path === '/admin') return await onAdmin(req, url);
     if (path === '/voucher') return await onVoucher(req, url);
     if (path === '/vadmin') return await onVoucherAdmin(req, url);
+    if (path === '/vbuy') return await onVoucherBuy(req);
+    if (path === '/vmanage') return await onVoucherManage(req, url);
     if (path === '/health') return json({ ok: true, at: new Date().toISOString() });
     return json({ error: 'Not found' }, 404);
   } catch (e) {
