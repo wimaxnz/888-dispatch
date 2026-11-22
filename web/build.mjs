@@ -7,7 +7,7 @@ const title = (s) => s === 'ncr' ? 'NCR' : s.replace(/\b\w/g, (c) => c.toUpperCa
 const provinces = [...new Set(Object.keys(PROVINCES).map(title))].sort().map((p) => `<option value="${p}">`).join('');
 // shop.html and admin.html: docs/ has the home-screen-app additions (install.js)
 // that web/ doesn't, so they are only rebuilt with `node web/build.mjs --all`.
-const pages = ['gift.html', 'vouchers.html', ...(process.argv.includes('--all') ? ['shop.html', 'admin.html'] : [])];
+const pages = process.argv.includes('--all') ? ['shop.html', 'admin.html'] : [];
 for (const f of pages) writeFileSync(here(`../docs/${f}`), readFileSync(here(f), 'utf8').replaceAll('__API__', API).replaceAll('__PROVINCES__', provinces));
 copyFileSync(here('common.css'), here('../docs/common.css'));
 copyFileSync(here('../shop-logo.png'), here('../docs/logo.png'));
