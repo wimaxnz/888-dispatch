@@ -97,12 +97,12 @@ function newForm() {
   return `<section class="card"><h2>New company vouchers</h2>
   <form id="nf">
     <div class="cols">
-      <label>Company name <input name="company" required placeholder="Xtra Staff New Zealand"></label>
+      <label>Company name <input name="company" required placeholder="Company name"></label>
       <label>Company logo <small>PNG or JPG</small><input name="logoFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <div id="logoPrev"></div>
     </div>
     <label>Greeting on the welcome page <textarea name="greeting">${esc(DEFAULT_GREETING)}</textarea></label>
-    <label>Signed by <input name="signOff" placeholder="From all of us at Xtra Staff NZ"></label>
+    <label>Signed by <input name="signOff" placeholder="From all of us at the company"></label>
     <div class="cols">
       <label>Value per staff (NZ$) <input name="budgetNzd" type="number" min="${d.minNzd}" max="${d.maxNzd}" step="1" value="80" required></label>
       <label>Number of vouchers <input name="qty" type="number" min="1" max="2000" step="1" value="10" required></label>

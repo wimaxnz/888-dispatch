@@ -271,6 +271,8 @@ async function packItems() {
   productCache = { at: Date.now(), items };
   return items;
 }
+const DESIGNS = ['christmas', 'thankyou', 'easter'];
+const designOf = (d: any) => (DESIGNS.includes(String(d)) ? String(d) : 'christmas');
 const publicPack = (pack: any) => ({ total: pack.total, kg: pack.kg, lines: pack.lines.map((l: any) => ({ title: l.title, qty: l.qty, image: l.image })) });
 
 async function voucherByToken(t: string | null) {
@@ -285,7 +287,7 @@ function voucherView(v: any, b: any, now: number) {
   const state = voucherState(v, b, now);
   return {
     code: v.code, state, staffName: v.staff_name ?? '', company: b.company, logo: b.logo ?? null,
-    greeting: b.greeting ?? '', signOff: b.sign_off ?? '', valuePhp: b.budget_php,
+    greeting: b.greeting ?? '', signOff: b.sign_off ?? '', valuePhp: b.budget_php, design: b.design ?? 'christmas', issuedAt: v.issued_at ?? b.paid_at ?? null,
     pack: publicPack(b.pack), packUntil: packDeadline(v, b),
     redeemed: state === 'redeemed' ? { at: v.redeemed_at, to: v.recipient?.name ?? '', city: v.recipient?.city ?? '' } : null,
   };
@@ -377,7 +379,7 @@ async function onVoucherAdmin(req: Request, url: URL) {
       const { error } = await db.from('voucher_batches').insert({ id, company: String(body.company).trim().slice(0, 80), logo: body.logo || null,
         greeting: String(body.greeting ?? '').slice(0, 600), sign_off: String(body.signOff ?? '').slice(0, 120),
         budget_nzd: Number(body.budgetNzd), nzd_to_php: Number(body.nzdToPhp), delivery_php: Number(body.deliveryPhp), budget_php: p.budgetPhp,
-        pack, qty: Number(body.qty), note: String(body.note ?? '').slice(0, 300) });
+        pack, qty: Number(body.qty), note: String(body.note ?? '').slice(0, 300), design: designOf(body.design) });
       if (error) throw error;
       const staff = Array.isArray(body.staff) ? body.staff : [];
       const prefix = prefixFor(body.company);
@@ -401,6 +403,7 @@ async function onVoucherAdmin(req: Request, url: URL) {
       const patch: any = {};
       if (typeof body.greeting === 'string') patch.greeting = body.greeting.slice(0, 600);
       if (typeof body.signOff === 'string') patch.sign_off = body.signOff.slice(0, 120);
+      if (typeof body.design === 'string') patch.design = designOf(body.design);
       if (typeof body.company === 'string' && body.company.trim()) patch.company = body.company.trim().slice(0, 80);
       if (body.logo === null || (typeof body.logo === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(body.logo) && body.logo.length <= 400_000)) patch.logo = body.logo;
       await db.from('voucher_batches').update(patch).eq('id', body.batchId);
@@ -466,7 +469,7 @@ async function makeBatch(body: any, opts: { source: string; budgetPhp: number; d
   const { error } = await db.from('voucher_batches').insert({ id, company: String(body.company).trim().slice(0, 80), logo: body.logo || null,
     greeting: String(body.greeting ?? '').slice(0, 600), sign_off: String(body.signOff ?? '').slice(0, 120),
     budget_nzd: opts.budgetNzd ?? null, nzd_to_php: opts.currency === 'NZD' ? opts.rate : null, delivery_php: opts.delivery, budget_php: budgetPhp,
-    currency: opts.currency ?? 'NZD', amount_local: opts.amount ?? null, php_rate: opts.rate ?? null,
+    currency: opts.currency ?? 'NZD', amount_local: opts.amount ?? null, php_rate: opts.rate ?? null, design: designOf(body.design),
     pack, qty, note: String(body.note ?? '').slice(0, 300), source: opts.source,
     buyer_name: opts.buyer?.name ?? null, buyer_email: opts.buyer?.email ?? null, manage_token: manage, total_php: budgetPhp * qty });
   if (error) throw error;
@@ -532,7 +535,7 @@ async function onVoucherManage(req: Request, url: URL) {
   const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient').eq('batch_id', b.id).order('created_at');
   return json({
     ok: true,
-    batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, currency: b.currency, amountLocal: b.amount_local, budgetPhp: b.budget_php,
+    batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, currency: b.currency, amountLocal: b.amount_local, budgetPhp: b.budget_php, design: b.design ?? 'christmas',
       qty: b.qty, totalPhp: b.total_php, paid: b.paid, paidAt: b.paid_at, order: b.shopify_order, pack: publicPack(b.pack) },
     vouchers: (vs ?? []).map((v: any) => {
       const state = voucherState(v, b, now);
