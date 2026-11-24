@@ -265,11 +265,53 @@ const STORE = 'https://3vyvyi-iq.myshopify.com';
 let productCache: { at: number; items: any[] } | null = null;
 async function packItems() {
   if (productCache && Date.now() - productCache.at < 10 * 60_000) return productCache.items;
-  const res = await fetch(`${STORE}/products.json?limit=250`);
-  if (!res.ok) throw new Error(`Shop catalogue ${res.status}`);
-  const items = itemsFromProducts((await res.json()).products).filter((i: any) => catalog.byVariant.has(String(i.variantId)));
+  // Shopify rate-limits products.json from the edge function's shared IPs (429), so the database keeps a copy
+  // (refresh_shop_catalog, pg_cron every 5 min). Use it; only ask Shopify directly if the copy is missing or > 1 day old.
+  let products: any[] | null = null;
+  const { data: saved } = await db.from('shop_catalog_cache').select('products, fetched_at').eq('id', 1).maybeSingle();
+  const age = saved?.fetched_at ? Date.now() - Date.parse(saved.fetched_at) : Infinity;
+  if (saved?.products && age < 30 * 60_000) products = saved.products;
+  if (!products) {
+    try { products = await adminProducts(); } catch (e) { console.error('admin products', String(e)); }
+    if (products?.length) await db.from('shop_catalog_cache').update({ products, fetched_at: new Date().toISOString() }).eq('id', 1);
+  }
+  if (!products?.length && saved?.products && age < 86_400_000) products = saved.products;
+  if (!products?.length) {
+    const res = await fetch(`${STORE}/products.json?limit=250`);
+    if (!res.ok) throw new Error(`Shop catalogue ${res.status}`);
+    products = (await res.json()).products;
+  }
+  const items = itemsFromProducts(products).filter((i: any) => catalog.byVariant.has(String(i.variantId)));
   productCache = { at: Date.now(), items };
   return items;
+}
+// Same shape as storefront products.json (what itemsFromProducts reads), via the Admin API (own rate limit, not per IP).
+const GRAMS: Record<string, number> = { GRAMS: 1, KILOGRAMS: 1000, POUNDS: 453.592, OUNCES: 28.3495 };
+async function adminProducts(): Promise<any[] | null> {
+  const token = await shopifyAdminToken();
+  if (!token) return null;
+  const out: any[] = []; let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token },
+      body: JSON.stringify({ variables: { after }, query: `query($after: String) { products(first: 100, after: $after, query: "status:active") {
+        pageInfo { hasNextPage endCursor }
+        nodes { title handle productType featuredMedia { preview { image { url } } }
+          variants(first: 10) { nodes { legacyResourceId price availableForSale inventoryItem { measurement { weight { value unit } } } } } } } }` }) });
+    const j = await res.json();
+    const conn = j?.data?.products;
+    if (!conn) throw new Error(j?.errors?.[0]?.message ?? `HTTP ${res.status}`);
+    for (const n of conn.nodes) out.push({
+      title: n.title, handle: n.handle, product_type: n.productType,
+      images: n.featuredMedia?.preview?.image?.url ? [{ src: n.featuredMedia.preview.image.url }] : [],
+      variants: n.variants.nodes.map((v: any) => {
+        const w = v.inventoryItem?.measurement?.weight;
+        return { id: Number(v.legacyResourceId), price: v.price, available: v.availableForSale, grams: w ? Math.round(Number(w.value) * (GRAMS[w.unit] ?? 0)) : 0 };
+      }),
+    });
+    if (!conn.pageInfo.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return out;
 }
 const DESIGNS = ['christmas', 'thankyou', 'easter'];
 const designOf = (d: any) => (DESIGNS.includes(String(d)) ? String(d) : 'christmas');
@@ -403,8 +445,24 @@ async function onVoucherAdmin(req: Request, url: URL) {
 const CREDIT_VARIANTS: Record<number, number> = { 1000: 44605447897149, 100: 44605447929917, 10: 44605447962685 };
 const SELF_MAX_QTY = 500;
 
+// What was really paid per batch: line price x qty MINUS any discount on that line (a sale code must never
+// buy full-value gift cards), and only for orders Shopify reports as fully paid.
+function netVoucherPayments(o: any) {
+  const by = new Map<string, number>();
+  if (o?.financial_status && o.financial_status !== 'paid') return by;
+  for (const li of o?.line_items ?? []) {
+    const p = (li.properties ?? []).find((x: any) => x.name === BATCH_PROP);
+    if (!p?.value) continue;
+    const allocs = li.discount_allocations ?? [];
+    const disc = allocs.length ? allocs.reduce((t: number, d: any) => t + Number(d.amount ?? 0), 0) : Number(li.total_discount ?? 0);
+    const net = Math.max(0, Number(li.price) * Number(li.quantity) - disc);
+    by.set(String(p.value), Math.round(((by.get(String(p.value)) ?? 0) + net) * 100) / 100);
+  }
+  return by;
+}
+
 async function payVoucherBatches(o: any) {
-  const paid = voucherPayments(o);
+  const paid = netVoucherPayments(o);
   for (const [batchId, amount] of paid) {
     const { data: b } = await db.from('voucher_batches').select('id, paid, total_php, paid_php').eq('id', batchId).maybeSingle();
     if (!b || b.paid) continue;
@@ -515,6 +573,13 @@ async function onVoucherBuy(req: Request) {
   if (body.act !== 'create') return json({ ok: false, reason: 'Unknown action' });
   const err = validateSelf({ ...body, currency });
   if (err) return json({ ok: false, reason: err });
+  // Logo: only a PNG/JPEG/WebP picture, at most ~300 KB.
+  if (body.logo != null && body.logo !== '' && !(typeof body.logo === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(body.logo) && body.logo.length <= 400_000))
+    return json({ ok: false, reason: 'Please use a PNG or JPG logo under 300 KB.' });
+  // A brake on floods of unpaid orders from many emails: at most 40 unpaid self-service orders per hour in total.
+  const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  const { count: recent } = await db.from('voucher_batches').select('id', { count: 'exact', head: true }).eq('source', 'self').eq('paid', false).gte('created_at', hourAgo);
+  if ((recent ?? 0) >= 40) return json({ ok: false, reason: 'We are getting a lot of orders right now. Please try again in a few minutes, or contact us.' });
   const c: any = cleanBuyer(body.buyer);
   if (c.error) return json({ ok: false, reason: c.error });
   // A little brake on abuse: at most 8 unpaid orders per email per day.
