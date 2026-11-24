@@ -493,6 +493,16 @@ async function shopifyAdminToken(): Promise<string | null> {
   return adminTokenCache.token;
 }
 
+// Shopify gift card code: company prefix + random characters, 16 long (~65+ bits), so bots guessing
+// codes at checkout ("card cracking") have no realistic chance. The short voucher code stays a label only.
+const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function strongGiftCode(voucherCode: string) {
+  const prefix = String(voucherCode).split('-')[0].replace(/[^A-Z0-9]/gi, '').toUpperCase().slice(0, 3);
+  let s = '';
+  for (const b of crypto.getRandomValues(new Uint8Array(16))) s += CODE_ALPHA[b % 32];
+  return (prefix + s).slice(0, 16);
+}
+
 async function issueGiftCards(batchId: string) {
   const token = await shopifyAdminToken();
   if (!token) return { issued: 0, reason: 'no Shopify access yet' };
@@ -501,7 +511,7 @@ async function issueGiftCards(batchId: string) {
   const { data: vs } = await db.from('vouchers').select('code').eq('batch_id', batchId).is('gift_card_id', null).neq('status', 'cancelled');
   let issued = 0;
   for (const v of vs ?? []) {
-    const code = giftCardCode(v.code);
+    const code = strongGiftCode(v.code);
     try {
       const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token },
         body: JSON.stringify({ query: 'mutation($i: GiftCardCreateInput!) { giftCardCreate(input: $i) { giftCard { id } userErrors { field message } } }',
@@ -523,10 +533,20 @@ async function phpPer(cur: string) {
   const hit = fxCache.get(cur);
   if (hit && Date.now() - hit.at < 3_600_000) return hit.rate;
   const k = cur.toLowerCase();
+  // Two independent copies of the free rate feed. If both answer they must agree within 5%,
+  // so one tampered or broken copy can't make gift cards sell at the wrong price.
+  const rates: number[] = [];
   for (const u of [`https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/${k}.json`, `https://latest.currency-api.pages.dev/v1/currencies/${k}.json`]) {
-    try { const j = await (await fetch(u)).json(); const r = Number(j?.[k]?.php); if (r > 0) { fxCache.set(cur, { at: Date.now(), rate: r }); return r; } } catch { /* try next */ }
+    try { const j = await (await fetch(u)).json(); const r = Number(j?.[k]?.php); if (r > 0) rates.push(r); } catch { /* try next */ }
   }
-  throw new Error('No exchange rate for ' + cur);
+  if (!rates.length) throw new Error('No exchange rate for ' + cur);
+  if (rates.length === 2 && Math.abs(rates[0] - rates[1]) / Math.min(rates[0], rates[1]) > 0.05) {
+    console.error('fx sources disagree', cur, rates);
+    throw new Error('Exchange rate sources disagree for ' + cur);
+  }
+  const rate = rates.length === 2 ? (rates[0] + rates[1]) / 2 : rates[0];
+  fxCache.set(cur, { at: Date.now(), rate });
+  return rate;
 }
 
 async function makeBatch(body: any, opts: { source: string; budgetPhp: number; delivery: number; buyer?: any; currency?: string; amount?: number; rate?: number; budgetNzd?: number | null }) {
