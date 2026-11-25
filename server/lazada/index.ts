@@ -53,12 +53,10 @@ async function save(t: any) {
   return row;
 }
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+// Supabase serves function responses on *.supabase.co as plain text (no HTML), so the result is plain text.
+const esc = (s: string) => s;
 const page = (title: string, body: string, status = 200) => new Response(
-  `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>` +
-  `<body style="font-family:system-ui,sans-serif;max-width:520px;margin:48px auto;padding:0 16px;color:#1d2b20">` +
-  `<h1 style="color:#16803d;font-size:24px">${esc(title)}</h1><p style="font-size:17px;line-height:1.5">${body}</p></body>`,
-  { status, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  `${title}\n\n${body.replace(/<\/?b>/g, '')}\n`, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 Deno.serve(async (req) => {
   const url = new URL(req.url);
@@ -76,7 +74,7 @@ Deno.serve(async (req) => {
 
     const code = url.searchParams.get('code');
     if (!code) {
-      const go = new URL('https://auth.lazada.com/oauth/authorize');
+      const go = new URL('https://api.lazada.com.ph/oauth/authorize');  // Philippines sign-in (auth.lazada.com defaults to Singapore)
       go.search = new URLSearchParams({ response_type: 'code', force_auth: 'true', redirect_uri: SELF, client_id: APP_KEY }).toString();
       return Response.redirect(go.toString(), 302);
     }
