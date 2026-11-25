@@ -47,3 +47,18 @@ end $$;
 revoke all on function public.refresh_shop_catalog() from public, anon, authenticated;
 
 select cron.schedule('shop-catalog-refresh', '*/5 * * * *', 'select public.refresh_shop_catalog()');
+
+-- 25 Nov 2026 (later): Shopify now answers 429 on BOTH storefront addresses from Supabase, so the copy
+-- went 8 h stale. The 5-minute job now asks the api function, which reads the products through the
+-- Shopify Admin API (not rate-limited per IP) and saves them here, SKUs included.
+create or replace function public.refresh_shop_catalog() returns void
+language plpgsql security definer set search_path = public, net as $$
+begin
+  perform net.http_post(
+    'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api/catalog-refresh',
+    body := '{}'::jsonb,
+    headers := jsonb_build_object('content-type', 'application/json',
+                                  'x-cron-key', (select value from app_secrets where name = 'cron_key')),
+    timeout_milliseconds := 60000);
+end $$;
+select cron.alter_job((select jobid from cron.job where jobname = 'shop-catalog-refresh'), schedule := '*/10 * * * *');

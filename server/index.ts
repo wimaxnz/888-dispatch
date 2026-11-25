@@ -2,6 +2,7 @@
 //   POST /api/shopify          Shopify "order payment" webhook (signed)
 //   POST /api/tick             every minute from pg_cron (x-cron-key)
 //   POST /api/lazada           new/changed Lazada orders, posted by the lazada-auth function (x-cron-key)
+//   POST /api/catalog-refresh  every 10 min from pg_cron: product list copy via the Shopify Admin API (x-cron-key)
 //   GET/POST /api/shop         partner shop screen (secret link token)
 //   GET/POST /api/admin        owner screen (x-admin-key)
 //   GET/POST /api/voucher      company gift voucher welcome page (secret link)
@@ -358,7 +359,7 @@ async function adminProducts(): Promise<any[] | null> {
       body: JSON.stringify({ variables: { after }, query: `query($after: String) { products(first: 100, after: $after, query: "status:active") {
         pageInfo { hasNextPage endCursor }
         nodes { title handle productType featuredMedia { preview { image { url } } }
-          variants(first: 10) { nodes { legacyResourceId price availableForSale inventoryItem { measurement { weight { value unit } } } } } } } }` }) });
+          variants(first: 10) { nodes { legacyResourceId sku price availableForSale inventoryItem { measurement { weight { value unit } } } } } } } }` }) });
     const j = await res.json();
     const conn = j?.data?.products;
     if (!conn) throw new Error(j?.errors?.[0]?.message ?? `HTTP ${res.status}`);
@@ -367,7 +368,7 @@ async function adminProducts(): Promise<any[] | null> {
       images: n.featuredMedia?.preview?.image?.url ? [{ src: n.featuredMedia.preview.image.url }] : [],
       variants: n.variants.nodes.map((v: any) => {
         const w = v.inventoryItem?.measurement?.weight;
-        return { id: Number(v.legacyResourceId), price: v.price, available: v.availableForSale, grams: w ? Math.round(Number(w.value) * (GRAMS[w.unit] ?? 0)) : 0 };
+        return { id: Number(v.legacyResourceId), sku: v.sku ?? '', price: v.price, available: v.availableForSale, grams: w ? Math.round(Number(w.value) * (GRAMS[w.unit] ?? 0)) : 0 };
       }),
     });
     if (!conn.pageInfo.hasNextPage) break;
@@ -706,6 +707,21 @@ async function onVoucherManage(req: Request, url: URL) {
   });
 }
 
+// ---------- Product list copy ----------
+// Shopify answers 429 to products.json from Supabase's network (both addresses, since 24-25 Nov), so the
+// copy in shop_catalog_cache is refreshed through the Admin API instead (its own rate limit, not per IP).
+// pg_cron calls this every 10 minutes (x-cron-key).
+async function onCatalogRefresh(req: Request) {
+  if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
+  const products = await adminProducts();
+  if (!products?.length) return json({ ok: false, reason: 'no Shopify Admin access' });
+  await db.from('shop_catalog_cache').update({ products, fetched_at: new Date().toISOString(), last_status: 200 }).eq('id', 1);
+  productCache = null;
+  const shippable = products.flatMap((p: any) => p.product_type === 'Gift Voucher' ? [] : p.variants);
+  const missing = shippable.filter((v: any) => !catalog.byVariant.has(String(v.id))).map((v: any) => v.sku || v.id);
+  return json({ ok: true, products: products.length, notInDispatchCatalogue: missing });
+}
+
 // ---------- Timer ----------
 async function onTick(req: Request) {
   if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
@@ -721,6 +737,7 @@ Deno.serve(async (req) => {
     if (path === '/shopify' && req.method === 'POST') return await onShopify(req);
     if (path === '/tick' && req.method === 'POST') return await onTick(req);
     if (path === '/lazada' && req.method === 'POST') return await onLazada(req);
+    if (path === '/catalog-refresh' && req.method === 'POST') return await onCatalogRefresh(req);
     if (path === '/shop') return await onShop(req, url);
     if (path === '/admin') return await onAdmin(req, url);
     if (path === '/voucher') return await onVoucher(req, url);

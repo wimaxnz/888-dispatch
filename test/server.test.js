@@ -46,6 +46,7 @@ test('prune drops old paid-up orders but keeps ones still owed', () => {
 
 const catalog = buildCatalog();
 const V = (title) => [...catalog.byVariant.values()].find((v) => v.title === title).variantId;
+const P = (title) => catalog.byVariant.get(V(title)).price; // peso price from the catalogue
 const shopifyOrder = (over = {}) => ({
   id: 5550001, name: '#1042', processed_at: '2026-11-15T02:00:00Z',
   shipping_address: { name: 'Rosa Dela Cruz', phone: '0917 555 0142', address1: 'Purok 3', address2: 'Brgy. Lawaan II', city: 'Talisay City', province: 'Cebu', country_code: 'PH', latitude: 10.2501, longitude: 123.8467 },
@@ -65,11 +66,11 @@ test('a Shopify order becomes one dispatch order with the real price, address an
   const r = fromShopify(shopifyOrder(), catalog);
   assert.equal(r.order.id, '1042');
   assert.deepEqual(r.order.address, { lat: 10.2501, lng: 123.8467, island: 'Cebu' });
-  assert.equal(r.package.price, 2800);
+  assert.equal(r.package.price, 2 * P('Tipid Starter Pack'));
   assert.equal(r.package.weightKg, 17);
   const rice = r.package.items.find((i) => i.name.includes('rice'));
   assert.equal(rice.qty, 2, 'two packs = two bags of rice');
-  assert.equal(r.package.shopPayout, Math.round(2800 * 0.7 + 50));
+  assert.equal(r.package.shopPayout, Math.round(2 * P('Tipid Starter Pack') * 0.7 + 50));
   assert.equal(r.order.extra.recipient.address, 'Purok 3, Brgy. Lawaan II');
 });
 
@@ -78,7 +79,7 @@ test('packs, bundles and single groceries in one Shopify order become one delive
     { variant_id: Number(V('Tipid Starter Pack')), quantity: 1, price: '1400', title: 'Tipid' },
     { variant_id: Number(V('Ulam Essentials')), quantity: 1, price: '500', title: 'Ulam Essentials' },
     { variant_id: Number(V('Spam Luncheon Meat Classic 340g')), quantity: 3, price: '400', title: 'Spam' }] }), catalog);
-  assert.equal(r.package.price, 1400 + 500 + 1200);
+  assert.equal(r.package.price, P('Tipid Starter Pack') + P('Ulam Essentials') + 3 * P('Spam Luncheon Meat Classic 340g'));
   assert.ok(r.package.items.some((i) => i.sku === `v:${V('Spam Luncheon Meat Classic 340g')}` && i.qty === 3));
   assert.ok(r.package.items.some((i) => i.sku === `v:${V('Ulam Essentials')}`));
   assert.equal(r.order.extra.lines.length, 3);
@@ -138,13 +139,13 @@ test('shop and admin views: a shop sees its offer but not the address until it a
   assert.ok(v.stock.length > 150);
   const a = adminView(d, { manual: [], payments: [] }, T0);
   assert.equal(a.orders[0].shopName, 'Talisay');
-  assert.equal(a.orders[0].sale, 2800);
+  assert.equal(a.orders[0].sale, 2 * P('Tipid Starter Pack'));
 });
 
 test('Shopify prices in NZD are ignored: shop pay and refunds use the peso catalogue', () => {
   const r = fromShopify(shopifyOrder({ currency: 'NZD', total_price: '12.88', line_items: [
     { variant_id: Number(V('Ulam Essentials')), quantity: 1, price: '12.88', title: 'Ulam Essentials' }] }), catalog);
-  assert.equal(r.package.price, 500);
-  assert.equal(r.package.shopPayout, Math.round(500 * 0.7 + 50));
+  assert.equal(r.package.price, P('Ulam Essentials'));
+  assert.equal(r.package.shopPayout, Math.round(P('Ulam Essentials') * 0.7 + 50));
   assert.deepEqual(r.order.extra.charged, { amount: 12.88, currency: 'NZD' });
 });
