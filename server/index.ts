@@ -2,7 +2,7 @@
 //   POST /api/shopify          Shopify "order payment" webhook (signed)
 //   POST /api/tick             every minute from pg_cron (x-cron-key)
 //   POST /api/lazada           new/changed Lazada orders, posted by the lazada-auth function (x-cron-key)
-//   POST /api/catalog-refresh  every 10 min from pg_cron: product list copy via the Shopify Admin API (x-cron-key)
+//   POST /api/catalog-refresh  every 10 min from pg_cron: product list copy via the Shopify Storefront API (x-cron-key)
 //   GET/POST /api/shop         partner shop screen (secret link token)
 //   GET/POST /api/admin        owner screen (x-admin-key)
 //   GET/POST /api/voucher      company gift voucher welcome page (secret link)
@@ -335,7 +335,7 @@ async function packItems() {
   const age = saved?.fetched_at ? Date.now() - Date.parse(saved.fetched_at) : Infinity;
   if (saved?.products && age < 30 * 60_000) products = saved.products;
   if (!products) {
-    try { products = await adminProducts(); } catch (e) { console.error('admin products', String(e)); }
+    products = await freshProducts();
     if (products?.length) await db.from('shop_catalog_cache').update({ products, fetched_at: new Date().toISOString() }).eq('id', 1);
   }
   if (!products?.length && saved?.products && age < 86_400_000) products = saved.products;
@@ -375,6 +375,35 @@ async function adminProducts(): Promise<any[] | null> {
     after = conn.pageInfo.endCursor;
   }
   return out;
+}
+// Same shape again, from Shopify's public Storefront API (tokenless, on the shop's own domain). It isn't
+// blocked the way products.json is, and needs no app permission (the Admin app has no read_products).
+const W: Record<string, number> = { GRAMS: 1, KILOGRAMS: 1000, POUNDS: 453.592, OUNCES: 28.3495 };
+async function storefrontProducts(): Promise<any[] | null> {
+  const out: any[] = []; let after: string | null = null;
+  for (let page = 0; page < 10; page++) {
+    const res = await fetch('https://888grocery.com/api/2026-10/graphql.json', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ variables: { after }, query: `query($after: String) { products(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { title handle productType featuredImage { url }
+          variants(first: 10) { nodes { id sku availableForSale weight weightUnit price { amount } } } } } }` }) });
+    if (!res.ok) throw new Error(`storefront ${res.status}`);
+    const j = await res.json();
+    const conn = j?.data?.products;
+    if (!conn) throw new Error(j?.errors?.[0]?.message ?? 'storefront: no products');
+    for (const n of conn.nodes) out.push({
+      title: n.title, handle: n.handle, product_type: n.productType, images: n.featuredImage?.url ? [{ src: n.featuredImage.url }] : [],
+      variants: n.variants.nodes.map((v: any) => ({ id: Number(String(v.id).split('/').pop()), sku: v.sku ?? '', price: v.price?.amount,
+        available: v.availableForSale, grams: Math.round(Number(v.weight ?? 0) * (W[v.weightUnit] ?? 0)) })),
+    });
+    if (!conn.pageInfo.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return out;
+}
+async function freshProducts(): Promise<any[] | null> {
+  try { const p = await storefrontProducts(); if (p?.length) return p; } catch (e) { console.error('storefront products', String(e)); }
+  try { return await adminProducts(); } catch (e) { console.error('admin products', String(e)); return null; }
 }
 const DESIGNS = ['christmas', 'thankyou', 'easter'];
 const designOf = (d: any) => (DESIGNS.includes(String(d)) ? String(d) : 'christmas');
@@ -709,12 +738,12 @@ async function onVoucherManage(req: Request, url: URL) {
 
 // ---------- Product list copy ----------
 // Shopify answers 429 to products.json from Supabase's network (both addresses, since 24-25 Nov), so the
-// copy in shop_catalog_cache is refreshed through the Admin API instead (its own rate limit, not per IP).
+// copy in shop_catalog_cache is refreshed through the Storefront API instead (Admin API as a fallback).
 // pg_cron calls this every 10 minutes (x-cron-key).
 async function onCatalogRefresh(req: Request) {
   if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
-  const products = await adminProducts();
-  if (!products?.length) return json({ ok: false, reason: 'no Shopify Admin access' });
+  const products = await freshProducts();
+  if (!products?.length) return json({ ok: false, reason: 'Shopify product list unavailable' });
   await db.from('shop_catalog_cache').update({ products, fetched_at: new Date().toISOString(), last_status: 200 }).eq('id', 1);
   productCache = null;
   const shippable = products.flatMap((p: any) => p.product_type === 'Gift Voucher' ? [] : p.variants);
