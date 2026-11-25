@@ -99,6 +99,14 @@ Deno.serve(async (req) => {
       }
       return Response.json({ ok: true, count: out.length, skus: out });
     }
+    // Read-only passthrough for planning (orders, order items, shipment providers). x-cron-key only.
+    if (req.method === 'POST' && url.pathname.endsWith('/read')) {
+      if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return new Response('forbidden', { status: 403 });
+      const { path, params } = await req.json();
+      const READ = ['/orders/get', '/order/get', '/order/items/get', '/shipment/providers/get', '/seller/get', '/seller/warehouse/get'];
+      if (!READ.includes(path)) return Response.json({ ok: false, error: 'path not allowed' }, { status: 400 });
+      return Response.json(await callApi(path, params ?? {}));
+    }
     if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
 
     const code = url.searchParams.get('code');
@@ -116,7 +124,7 @@ Deno.serve(async (req) => {
     const msg = String((e as Error).message ?? e);
     console.error('lazada-auth', msg);
     if (msg === 'missing_secret') return page('One step first', 'The Lazada App Secret is not saved yet. Paste it into Supabase <b>app_secrets</b> as <b>lazada_app_secret</b>, then open this link again.', 400);
-    if (url.pathname.endsWith('/products')) return Response.json({ ok: false, error: msg }, { status: 500 });
+    if (url.pathname.endsWith('/products') || url.pathname.endsWith('/read')) return Response.json({ ok: false, error: msg }, { status: 500 });
     return page('Lazada did not connect', `Lazada answered: ${esc(msg)}. Open this link again to retry; the sign-in code only works once and only for a few minutes.`, 400);
   }
 });
