@@ -105,6 +105,51 @@ export class Dispatcher {
     return order;
   }
 
+  // Lazada orders: Lazada's own multi-warehouse routing already chose the shop (each partner shop is a
+  // Lazada warehouse), so there are no waves. The order goes straight to that shop, or to the hub when the
+  // warehouse isn't linked to a shop. Lazada's ship-by time is the deadline when it gives one.
+  assignDirect({ id, packageId, qty = 1, address, paidAt, shopId, deadline, extra = {} }) {
+    if (!this.packages.has(packageId)) throw new Error(`Unknown package ${packageId}`);
+    const shop = (shopId && this.shops.get(shopId)) || this.hub();
+    const order = {
+      ...extra, id, packageId, qty, address, paidAt,
+      deadline: deadline ?? paidAt + this.cfg.shipWithinHours * HOUR,
+      status: 'assigned', shopId: shop.id, asked: new Set([shop.id]), wave: 0, held: {},
+      dropped: [], shortageDeclines: {}, shortageShops: new Set(), refund: 0, direct: true,
+    };
+    this.orders.set(id, order);
+    const offer = {
+      id: `of${++this.seq}`, orderId: id, shopId: shop.id, wave: 0, ring: 'lazada warehouse', km: 0, shippingCost: 0,
+      payout: this.payoutFor(order), missing: [], sentAt: paidAt, expiresAt: paidAt, status: 'accepted', direct: true,
+    };
+    this.offers.push(offer);
+    order.offer = offer;
+    if (!shop.hub) {
+      const have = {};
+      for (const n of this.need(order)) have[n.sku] = Math.min(n.qty, this.free(shop, n.sku));
+      this.hold(shop, order, have);
+      offer.missing = this.missing(shop, order);
+    }
+    this.log(paidAt, 'order_paid', { order: id });
+    this.log(paidAt, shop.hub ? 'to_hub' : 'direct_assigned', {
+      order: id, shop: shop.id, deadline: order.deadline, reason: shop.hub ? 'Lazada warehouse not linked to a shop' : undefined,
+      missing: offer.missing.map((m) => `${m.qty} x ${m.name}`),
+    });
+    return order;
+  }
+
+  // The buyer or the marketplace cancelled before it shipped: release stock, close offers, no strike.
+  cancel(orderId, now, reason = 'cancelled by buyer') {
+    const order = this.orders.get(orderId);
+    if (!order || !['dispatching', 'assigned'].includes(order.status)) return { ok: false, reason: 'cannot cancel now' };
+    for (const o of this.pending(order)) o.status = 'cancelled';
+    if (order.status === 'assigned' && !this.shops.get(order.shopId)?.hub) this.release(order);
+    order.status = 'cancelled';
+    order.cancelledAt = now;
+    this.log(now, 'order_cancelled', { order: orderId, shop: order.shopId, reason });
+    return { ok: true };
+  }
+
   // Rule 4: ask the next best shops (up to waveSize) in the nearest rank that still has any.
   sendWave(order, now) {
     const list = this.candidates(order);

@@ -99,6 +99,31 @@ Deno.serve(async (req) => {
       }
       return Response.json({ ok: true, count: out.length, skus: out });
     }
+    // Every 5 minutes from pg_cron: orders created or changed in the last 2 days -> the dispatch "api" function.
+    // It ignores orders whose Lazada status hasn't changed, so reading the same orders again is harmless.
+    if (req.method === 'POST' && url.pathname.endsWith('/orders-sync')) {
+      const key = await secret('cron_key');
+      if (!same(req.headers.get('x-cron-key'), key)) return new Response('forbidden', { status: 403 });
+      const since = new Date(Date.now() - 2 * 86400e3).toISOString().replace(/\.\d{3}Z$/, '+00:00');
+      const orders: any[] = [];
+      for (let offset = 0; offset < 500; offset += 100) {
+        const r = await callApi('/orders/get', { update_after: since, sort_by: 'updated_at', sort_direction: 'DESC', limit: '100', offset: String(offset) });
+        const list = r?.data?.orders ?? [];
+        orders.push(...list);
+        if (list.length < 100) break;
+      }
+      const out: any[] = [];
+      for (let i = 0; i < orders.length; i += 50) {
+        const ids = orders.slice(i, i + 50).map((o) => o.order_id);
+        const r = await callApi('/orders/items/get', { order_ids: JSON.stringify(ids) });
+        const byId = new Map((r?.data ?? []).map((x: any) => [String(x.order_id), x.order_items ?? []]));
+        for (const o of orders.slice(i, i + 50)) out.push({ order: o, items: byId.get(String(o.order_id)) ?? [] });
+      }
+      if (!out.length) return Response.json({ ok: true, orders: 0 });
+      const res = await fetch('https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api/lazada', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-cron-key': key! }, body: JSON.stringify({ orders: out }) });
+      return Response.json({ ok: res.ok, orders: out.length, dispatch: await res.json().catch(() => null) });
+    }
     // Read-only passthrough for planning (orders, order items, shipment providers). x-cron-key only.
     if (req.method === 'POST' && url.pathname.endsWith('/read')) {
       if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return new Response('forbidden', { status: 403 });
@@ -124,7 +149,7 @@ Deno.serve(async (req) => {
     const msg = String((e as Error).message ?? e);
     console.error('lazada-auth', msg);
     if (msg === 'missing_secret') return page('One step first', 'The Lazada App Secret is not saved yet. Paste it into Supabase <b>app_secrets</b> as <b>lazada_app_secret</b>, then open this link again.', 400);
-    if (url.pathname.endsWith('/products') || url.pathname.endsWith('/read')) return Response.json({ ok: false, error: msg }, { status: 500 });
+    if (/\/(products|read|orders-sync)$/.test(url.pathname)) return Response.json({ ok: false, error: msg }, { status: 500 });
     return page('Lazada did not connect', `Lazada answered: ${esc(msg)}. Open this link again to retry; the sign-in code only works once and only for a few minutes.`, 400);
   }
 });

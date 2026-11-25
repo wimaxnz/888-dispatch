@@ -36,7 +36,8 @@ export function restore(s) {
 // shop is paid), and only the latest events stay (all are also in event_log).
 export function prune(d, now, { keepDays = 14, keepEvents = 1500 } = {}) {
   for (const [id, o] of d.orders) {
-    const done = o.status === 'delivered' && now - o.deliveredAt > keepDays * DAY;
+    const done = (o.status === 'delivered' && now - o.deliveredAt > keepDays * DAY)
+      || (o.status === 'cancelled' && now - o.cancelledAt > keepDays * DAY);
     if (done && o.payout?.status !== 'payable') d.orders.delete(id);
   }
   d.offers = d.offers.filter((o) => d.orders.has(o.orderId));

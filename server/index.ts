@@ -1,6 +1,7 @@
 // 888 dispatch server (Supabase Edge Function "api"). Deployed with imports pinned to a commit of this repo.
 //   POST /api/shopify          Shopify "order payment" webhook (signed)
 //   POST /api/tick             every minute from pg_cron (x-cron-key)
+//   POST /api/lazada           new/changed Lazada orders, posted by the lazada-auth function (x-cron-key)
 //   GET/POST /api/shop         partner shop screen (secret link token)
 //   GET/POST /api/admin        owner screen (x-admin-key)
 //   GET/POST /api/voucher      company gift voucher welcome page (secret link)
@@ -14,6 +15,7 @@ import { buildCatalog } from './catalog.js';
 import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
+import { fromLazada, skuMap, lazadaStage, lazadaTracking } from './lazada.js';
 import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
   voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP, voucherPhp, validateSelf, packForCard, giftCardCode } from './vouchers.js';
 
@@ -132,6 +134,58 @@ async function onShopify(req: Request) {
   return json({ ok: true, ...result });
 }
 
+// ---------- Lazada ----------
+// The lazada-auth function reads new and changed Lazada orders every 5 minutes and posts them here
+// (x-cron-key): { orders: [{ order, items }] }. Each partner shop is a Lazada warehouse, so Lazada has
+// already chosen the shop; we hand the order to it, then follow Lazada's status (cancel / shipped / delivered).
+async function onLazada(req: Request) {
+  if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return json({ error: 'no' }, 403);
+  const { orders } = await req.json();
+  const { data: cache } = await db.from('shop_catalog_cache').select('products').eq('id', 1).maybeSingle();
+  const bySku = skuMap(cache?.products ?? []);
+  const results: any[] = [];
+  for (const { order, items } of (orders ?? []).slice(0, 100)) {
+    const lazId = String(order?.order_id ?? '');
+    if (!lazId) continue;
+    const stage = lazadaStage(items);
+    const { data: seen } = await db.from('lazada_orders').select('stage').eq('order_id', lazId).maybeSingle();
+    if (seen && seen.stage === stage) continue; // nothing new
+    if (!seen) await db.from('lazada_orders').insert({ order_id: lazId, stage, payload: { order, items } });
+    else await db.from('lazada_orders').update({ stage, payload: { order, items }, updated_at: new Date().toISOString() }).eq('order_id', lazId);
+    const id = `LZ-${lazId}`;
+    const result: any = await withState(({ d, extra, now }) => {
+      const known = d.orders.get(id);
+      if (!known) {
+        // Orders that were already shipped/finished before this link existed are only recorded.
+        if (stage !== 'new') return { history: stage };
+        const r: any = fromLazada(order, items, { catalog, bySku, payout: extra.payout ?? PAYOUT,
+          shopForWarehouse: (code: string) => [...d.shops.values()].find((s: any) => s.lazadaWarehouse && s.lazadaWarehouse === code)?.id ?? null });
+        if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, extra.ownerPhone) }; }
+        if (r.skip) return { skipped: r.skip };
+        if (!r.order.address) { const s = d.shops.get(r.order.shopId) ?? d.hub(); r.order.address = { lat: s.lat, lng: s.lng, island: s.island }; }
+        d.packages.set(r.package.id, r.package);
+        const o = d.assignDirect(r.order);
+        return { assigned: o.shopId };
+      }
+      if (stage === 'cancelled') return d.cancel(id, now, 'Lazada: cancelled');
+      if (stage === 'shipped' || stage === 'delivered') {
+        let r: any = { ok: true };
+        if (known.status === 'assigned') {
+          r = d.ship(id, known.shopId, lazadaTracking(items) ?? 'LAZADA', now);
+          if (!r.ok) { known.status = 'shipped'; known.shippedAt = now; known.tracking = lazadaTracking(items) ?? 'LAZADA'; known.lateShip = true; r = { ok: true, late: true }; }
+        }
+        if (stage === 'delivered') r = d.deliver(id, now);
+        return r;
+      }
+      return { unchanged: stage };
+    });
+    if (result?.ownerText) { try { await sendTexts([result.ownerText]); } catch (e) { console.error('sms', e); } delete result.ownerText; }
+    await db.from('lazada_orders').update({ result }).eq('order_id', lazId);
+    results.push({ id, stage, result });
+  }
+  return json({ ok: true, results });
+}
+
 // ---------- Shops ----------
 async function shopIdFor(token: string | null) {
   if (!token || token.length < 20) return null;
@@ -218,6 +272,14 @@ async function onAdmin(req: Request, url: URL) {
         list.forEach((x: any) => { x.payout.status = 'paid'; x.payout.paidAt = now; });
         extra.payments = [...(extra.payments ?? []), { at: now, shop: body.shopId, orders: list.length, amount }];
         r = { ok: true, amount }; break;
+      }
+      case 'lazadaWarehouse': {
+        if (!s || s.hub) { r = { ok: false }; break; }
+        const code = String(body.code ?? '').trim().slice(0, 60);
+        const taken = code && [...d.shops.values()].find((x: any) => x.id !== s.id && x.lazadaWarehouse === code);
+        if (taken) { r = { ok: false, reason: `That warehouse code is already linked to ${taken.name}.` }; break; }
+        if (code) s.lazadaWarehouse = code; else delete s.lazadaWarehouse;
+        r = { ok: true }; break;
       }
       case 'setPhone': {
         if (!s) { r = { ok: false }; break; }
@@ -658,6 +720,7 @@ Deno.serve(async (req) => {
   try {
     if (path === '/shopify' && req.method === 'POST') return await onShopify(req);
     if (path === '/tick' && req.method === 'POST') return await onTick(req);
+    if (path === '/lazada' && req.method === 'POST') return await onLazada(req);
     if (path === '/shop') return await onShop(req, url);
     if (path === '/admin') return await onAdmin(req, url);
     if (path === '/voucher') return await onVoucher(req, url);

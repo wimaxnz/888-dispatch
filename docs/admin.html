@@ -211,6 +211,10 @@ function shopsView() {
             <button class="btn small" data-act="setPhone" data-shop="${esc(s.id)}">Save mobile</button>
             ${s.phone ? `<button class="btn small" data-act="testSms" data-shop="${esc(s.id)}">Test text</button>` : ''}
           </div>
+          ${s.hub ? '' : `<div class="acts" style="margin-top:6px;align-items:center">
+            <input class="phone" id="wh-${esc(s.id)}" value="${esc(s.lazadaWarehouse || '')}" placeholder="Lazada warehouse code" aria-label="Lazada warehouse code for ${esc(s.name)}">
+            <button class="btn small" data-act="lazadaWarehouse" data-shop="${esc(s.id)}">Save Lazada warehouse</button>
+          </div>`}
           <div class="acts" style="margin-top:6px">
           <button class="btn small primary" data-act="newLink" data-shop="${esc(s.id)}">${confirmKey === 'link' + s.id ? 'Tap again: make new link' : 'Get shop link'}</button>
           ${s.strikes ? `<button class="btn small" data-act="clearStrikes" data-shop="${esc(s.id)}">Clear strikes</button>` : ''}
@@ -301,6 +305,7 @@ document.addEventListener('click', async (ev) => {
   if (a === 'hubship') await act({ act: 'hubship', orderId: id, tracking: 'HUB' }, 'Marked as shipped from the hub');
   if (a === 'deliver') await act({ act: 'deliver', orderId: id }, 'Marked as delivered');
   if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');
+  if (a === 'lazadaWarehouse') { await act({ act: 'lazadaWarehouse', shopId: shop, code: document.getElementById(`wh-${shop}`).value }, 'Lazada warehouse saved'); }
   if (a === 'setPhone') { await act({ act: 'setPhone', shopId: shop, phone: document.getElementById(`ph-${shop}`).value }, 'Mobile saved'); }
   if (a === 'testSms') { const r = await act({ act: 'testSms', shopId: shop }); if (r?.sent) toast('Test text sent'); sms = null; if (tab === 'shops') loadSms(); }
   if (a === 'buyerChoice') { const r = await act({ act: 'buyerChoice', orderId: id, choice: b.dataset.choice }); if (r?.ok) toast(r.followUp ? `Follow-up order ${r.followUp} is going out` : `Recorded. Refund ${peso(r.refund)} in Shopify.`); }

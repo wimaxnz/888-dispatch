@@ -21,6 +21,16 @@ export function textsFor(events, d, { ownerPhone = null } = {}) {
   const out = [];
   const owner = normalizePH(ownerPhone);
   for (const e of events) {
+    if (e.type === 'direct_assigned' || (e.type === 'order_cancelled' && d.orders.get(e.order)?.source === 'lazada')) {
+      const shop = d.shops.get(e.shop), to = normalizePH(shop?.phone), order = d.orders.get(e.order);
+      if (!to || !order || shop.hub) continue;
+      const by = new Date(order.deadline).toLocaleString('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      out.push({ to, kind: e.type === 'direct_assigned' ? 'lazada' : 'cancel', ref: e.order,
+        message: e.type === 'direct_assigned'
+          ? `888 LAZADA ORDER: ${cut(d.pkg(order).name, 40)}. Pack it and stick on the Lazada label by ${by}. J&T picks up from your shop. Details on your 888 shop page.`
+          : `888: Lazada order ${e.order} was CANCELLED. Don't ship it. Put the items back on your shelf.` });
+      continue;
+    }
     if (e.type === 'offer_sent') {
       const shop = d.shops.get(e.shop), to = normalizePH(shop?.phone);
       const order = d.orders.get(e.order), offer = d.offers.find((o) => o.orderId === e.order && o.shopId === e.shop);

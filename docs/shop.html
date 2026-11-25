@@ -267,7 +267,7 @@ function offerCard(o) {
 
 function orderCard(o) {
   const u = (ui[o.id] ??= { ticks: {} });
-  const head = `<div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">Order ${esc(o.id)} · you earn ${peso(o.payout)}</p></div></div>`;
+  const head = `<div class="head"><div><h3>${esc(o.title)}</h3><p class="sub">${o.source === 'lazada' ? 'Lazada order' : 'Order'} ${esc(o.id)} · you earn ${peso(o.payout)}</p></div></div>`;
   if (o.stage === 'lost') {
     const why = o.lostWhy === 'cant_source' ? 'You said you couldn\'t get the items. It went to another shop. No strike.'
       : o.lostWhy === 'sourcing_missed' ? 'You didn\'t confirm the missing items in time. It went to another shop and you got a strike.'
@@ -288,6 +288,14 @@ function orderCard(o) {
       <div class="actions"><button class="btn primary wide" data-act="sourced" data-id="${o.id}">I have all the items now</button>
       <button class="btn danger wide" data-act="cantsource" data-id="${o.id}">${u.confirmCant ? 'Tap again: give this order to another shop' : 'I can\'t get them'}</button></div>
       <p class="note">Saying "I can't get them" before the time is up gives no strike. Saying nothing gives a strike.</p>`;
+  } else if (o.stage === 'cancelled') {
+    body = `<div class="status bad"><b>Cancelled</b>The buyer cancelled this Lazada order. Don't ship it; put the items back on your shelf.</div>`;
+  } else if (st === 'pack' && o.source === 'lazada') {
+    body = `<h4>Lazada order: pack it</h4>
+      <div class="status info"><b>Lazada label</b>888 prints the Lazada shipping label and sends it to you. Stick it on the parcel. J&amp;T picks up from your shop; you don't book a courier. The tracking number appears here by itself.</div>
+      ${o.missing?.length ? `<div class="status bad"><b>Not on your stock list</b>${o.missing.map((m) => `${m.qty} × ${esc(m.name)}`).join(', ')}. Buy them in or tell 888 now.</div>` : ''}
+      ${o.lines.some((l) => l.contents) ? `<p class="note">Bundles: ${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
+      <ul class="items">${o.items.map((i) => `<li><span class="mark">✓</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}</span></li>`).join('')}</ul>`;
   } else if (st === 'pack') {
     body = `<h4>Pack the order</h4><p class="note">You checked these on your shelf when you accepted. Put them in the bag.</p>
       ${o.dropped.length ? `<div class="status info"><b>Not in this delivery</b>${o.dropped.map(esc).join(', ')}. Don't pack ${o.dropped.length > 1 ? 'them' : 'it'}; 888 is sorting it out with the buyer.</div>` : ''}

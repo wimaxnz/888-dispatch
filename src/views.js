@@ -4,6 +4,7 @@
 
 const stage = (d, o) => {
   if (o.status === 'dispatching') return 'find';
+  if (o.status === 'cancelled') return 'cancelled';
   if (o.status === 'delivered') return 'done';
   if (o.status === 'shipped') return 'way';
   if (d.shops.get(o.shopId)?.hub) return 'hub';
@@ -45,6 +46,8 @@ export function shopView(d, shopId, catalog, now) {
       recipient: ours ? o.recipient ?? null : null, note: ours ? o.note ?? '' : '',
       items: ours ? d.need(o).map((n) => ({ sku: n.sku, name: n.name, qty: n.qty })) : [],
       lines: o.lines ?? [], dropped: o.dropped.map((x) => x.name),
+      source: o.source ?? 'shopify', lazada: ours && o.lazada ? { orderId: o.lazada.orderId, provider: o.lazada.provider, packageIds: o.lazada.packageIds } : null,
+      missing: ours && myOffer.direct ? (myOffer.missing ?? []).map((m) => ({ name: m.name, qty: m.qty })) : [],
     };
   }).sort((a, b) => rank(a) - rank(b) || b.paidAt - a.paidAt);
   const stock = catalog.stockItems.map((i) => ({ ...i, qty: shop.stock[i.sku] ?? 0, held: shop.reserved[i.sku] ?? 0 }));
@@ -68,6 +71,7 @@ export function adminView(d, extra, now) {
       sourceBy: o.sourcing && !o.sourcing.confirmed ? o.sourcing.sourceBy : null, failedShop: o.failedShop ?? null,
       dropped: o.dropped.map((x) => `${x.qty} × ${x.name}`), lines: o.lines ?? [], status: o.status,
       shippedAt: o.shippedAt ?? null, deliveredAt: o.deliveredAt ?? null, locatedBy: o.locatedBy ?? null,
+      source: o.source ?? 'shopify', lazada: o.lazada ?? null, cancelledAt: o.cancelledAt ?? null,
     };
   }).sort((a, b) => b.paidAt - a.paidAt);
   const shops = [...d.shops.values()].map((s) => {
@@ -80,7 +84,7 @@ export function adminView(d, extra, now) {
       answered, accepted, open: [...d.orders.values()].filter((o) => o.shopId === s.id && o.status === 'assigned').length,
       owed: theirs.filter((o) => o.payout.status === 'payable').reduce((t, o) => t + o.payout.amount, 0),
       owedOrders: theirs.filter((o) => o.payout.status === 'payable').length,
-      stocked: Object.values(s.stock).filter((q) => q > 0).length,
+      stocked: Object.values(s.stock).filter((q) => q > 0).length, lazadaWarehouse: s.lazadaWarehouse ?? '',
     };
   });
   return { now, orders, shops, manual: extra.manual ?? [], payments: extra.payments ?? [], rules: d.cfg, payout: extra.payout, ownerPhone: extra.ownerPhone ?? '' };
