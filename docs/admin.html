@@ -54,6 +54,22 @@ tr:last-child td { border-bottom: 0 } .r { text-align: right }
 .rule input { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 100%; text-align: right }
 .login { max-width: 420px; margin: 40px auto }
 .phone { border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; background: var(--surface); width: 170px; font-size: 14px }
+.alarmbar { display: flex; gap: 12px; align-items: center; margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--bad-soft); border: 2px solid var(--bad); color: var(--bad); font-weight: 700; cursor: pointer; width: 100%; text-align: left; font-size: 15px }
+.alarmbar.warn { background: #fff4dc; border-color: var(--warn); color: #8a5a00 }
+.blink { animation: blink 1s ease-in-out infinite alternate }
+@keyframes blink { to { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) { .blink { animation: none; text-decoration: underline } }
+.clock { font: 700 13px var(--f-head); padding: 3px 8px; border-radius: 999px; background: var(--soft); white-space: nowrap }
+.clock.amber { background: #fff1d6; color: #8a5a00 } .clock.red, .clock.late { background: var(--bad); color: #fff }
+.src { font: 700 10.5px var(--f-head); letter-spacing: .06em; text-transform: uppercase; padding: 2px 6px; border-radius: 5px; background: #f2e3ff; color: #5b2a86 }
+.src.web { background: #e3f0ff; color: #1d4f8a }
+.board .row { grid-template-columns: 22px minmax(0, 1fr) auto; cursor: default }
+.board .row input { width: 18px; height: 18px }
+.board .row .what { display: block; min-width: 0; text-align: left; background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit }
+.bulk { position: sticky; top: 104px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 10px; margin: 8px 0; border-radius: 10px; background: var(--ink); color: var(--bg) }
+.bulk .btn { background: var(--bg); color: var(--ink) }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 }
+.items2 { margin: 6px 0 0; padding-left: 18px; font-size: 14px }
 @media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, 1fr) } .two { grid-template-columns: 1fr } .rules { grid-template-columns: 1fr } }
 </style>
 </head>
@@ -91,7 +107,8 @@ async function call(method, body, query = '') {
   if (!res.ok) throw new Error(data.error || 'Something went wrong');
   return data;
 }
-async function load() { try { V = await call('GET'); render(); } catch (e) { if (KEY) toast(e.message); } }
+let loadedAt = Date.now();
+async function load() { try { V = await call('GET'); loadedAt = Date.now(); render(); } catch (e) { if (KEY) toast(e.message); } }
 // Lazada J&T label: open a tab first (before waiting, so the phone doesn't block it), then show the label in it.
 function labelTab() { const w = window.open('', '_blank'); if (w) w.document.write('<p style="font:16px sans-serif;padding:20px">Getting the J&amp;T label from Lazada…</p>'); return w; }
 function showLabel(w, label) {
@@ -107,7 +124,7 @@ function showLabel(w, label) {
 }
 async function act(body, okMsg) {
   if (busy) return; busy = true;
-  try { const r = await call('POST', body); V = r.view; if (r.result?.ok === false) toast(r.result.reason || 'That didn\'t work.'); else if (okMsg) toast(okMsg); render(); return r.result; }
+  try { const r = await call('POST', body); V = r.view; loadedAt = Date.now(); if (r.result?.ok === false) toast(r.result.reason || 'That didn\'t work.'); else if (okMsg) toast(okMsg); render(); return r.result; }
   catch (e) { toast(e.message); } finally { busy = false; }
 }
 
@@ -138,6 +155,36 @@ function attention() {
   return out.sort((a, b) => (b.bad ? 1 : 0) - (a.bad ? 1 : 0));
 }
 const margin = (o) => o.sale - o.refund - o.cost - (o.ship ?? 0);
+const nowMs = () => V.now + (Date.now() - loadedAt);
+// Ship-by clock, like Lazada's "time left to ship": amber under 6 h, red under 2 h (blinks), late = past the deadline (blinks).
+function clockOf(o) {
+  if (o.board !== 'topack') return null;
+  const ms = o.deadline - nowMs();
+  return { ms, level: ms < 0 ? 'late' : ms < 2 * HOUR ? 'red' : ms < 6 * HOUR ? 'amber' : 'ok' };
+}
+const clockText = (c) => (c.ms < 0 ? `LATE ${left(-c.ms)}` : `${left(c.ms)} left to ship`);
+const clockHtml = (o) => { const c = clockOf(o); return c ? `<span class="clock num ${c.level} ${['red', 'late'].includes(c.level) ? 'blink' : ''}" data-clock="${esc(o.id)}">${clockText(c)}</span>` : ''; };
+const LZ_WORDS = { unpaid: 'Unpaid', pending: 'New', topack: 'To pack', packed: 'Packed', repacked: 'Repacked', toship: 'To ship', ready_to_ship_pending: 'Ready to ship (sending)', ready_to_ship: 'Waiting for J&T pickup',
+  shipped: 'With J&T (in transit)', failed_delivery: 'Delivery failed', delivered: 'Delivered', confirmed: 'Delivered (confirmed)', canceled: 'Cancelled', cancelled: 'Cancelled', returned: 'Returned' };
+function deliveryText(o) {
+  if (o.source === 'lazada') return `Lazada: ${LZ_WORDS[o.lazada?.status] ?? o.lazada?.status ?? 'New'}${o.lazada?.tracking ? ` · J&T ${o.lazada.tracking}` : ''}`;
+  if (o.status === 'shipped') return `Shipped${o.courier ? ' by ' + o.courier : ''}${o.tracking ? ' · ' + o.tracking : ''}`;
+  if (o.status === 'delivered') return 'Delivered';
+  return '';
+}
+const BOARD = { topack: 'To pack', pickup: 'Waiting for pickup', shipping: 'Shipping', done: 'Delivered', cancelled: 'Cancelled', all: 'All' };
+function alarms() {
+  const open = V.orders.filter((o) => o.board === 'topack');
+  const lv = (o) => clockOf(o).level;
+  return { late: open.filter((o) => lv(o) === 'late'), red: open.filter((o) => lv(o) === 'red'), amber: open.filter((o) => lv(o) === 'amber') };
+}
+function alarmBar() {
+  const { late, red, amber } = alarms();
+  const n = (k, w) => `${k} order${k > 1 ? 's' : ''} ${w}`;
+  if (late.length || red.length) return `<button class="alarmbar blink" data-goboard="topack">⚠ ${[late.length && n(late.length, 'LATE: penalty risk'), red.length && `${red.length} due in under 2 hours`].filter(Boolean).join(' · ')}. Open To pack →</button>`;
+  if (amber.length) return `<button class="alarmbar warn" data-goboard="topack">${n(amber.length, 'due to ship within 6 hours')} →</button>`;
+  return '';
+}
 
 // ---------- Views ----------
 function overview() {
@@ -162,7 +209,8 @@ function detail(o) {
   const r = o.recipient || {};
   return `<section class="card" style="position:sticky;top:110px">
     <div class="head"><div><h3>${esc(o.id)} · ${esc(o.title)}</h3><p class="sub">Paid ${when.format(o.paidAt)} · ship by ${when.format(o.deadline)}</p></div><span class="pill p-${o.stage}">${STAGE[o.stage]}</span></div>
-    <div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}, ${esc(r.province)}<br><span class="note">Buyer in ${esc(o.buyer?.country || '?')}${o.locatedBy && o.locatedBy !== 'shopify' ? ` · placed on the map by ${o.locatedBy} name` : ''}</span></div>
+    ${o.source === 'lazada' ? `<div class="to"><b>Lazada buyer · ${esc(r.city || '')}</b>Name, phone and address are printed on the J&amp;T label (Lazada hides them from apps).</div>`
+      : `<div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}, ${esc(r.province)}<br><span class="note">Buyer in ${esc(o.buyer?.country || '?')}${o.locatedBy && o.locatedBy !== 'shopify' ? ` · placed on the map by ${o.locatedBy} name` : ''}</span></div>`}
     <dl class="kv num"><dt>Sale</dt><dd>${peso(o.sale)}</dd>${o.refund ? `<dt>Refunded</dt><dd>−${peso(o.refund)}</dd>` : ''}
       <dt>${o.stage === 'hub' ? 'Goods (hub)' : 'Shop payout'}</dt><dd>−${peso(o.cost)}</dd><dt>Shipping (est.)</dt><dd>${o.ship == null ? 'not known' : '−' + peso(o.ship)}</dd>
       <dt class="total">Margin</dt><dd class="total">${peso(margin(o))}</dd></dl>
@@ -171,13 +219,18 @@ function detail(o) {
       : o.buyerChoice?.status === 'refund' ? `Buyer chose a refund: refund ${peso(o.missingRefund)} in Shopify.`
       : o.buyerChoice?.status === 'later' ? `Buyer chose to get ${o.dropped.length > 1 ? 'them' : 'it'} later: follow-up order ${esc(o.buyerChoice.followUp)}.` : ''}</div>` : ''}
     ${o.followUpOf ? `<p class="note">This sends the missing items from order ${esc(o.followUpOf)}.</p>` : ''}
-    ${o.source === 'lazada' ? `<p class="note">Lazada order ${esc(o.lazada?.orderId || '')}${o.lazada?.tracking ? ` · J&amp;T ${esc(o.lazada.tracking)}` : ''}${o.lazada?.rtsAt ? ' · ready for pickup' : o.lazada?.labelAt ? ' · label printed' : o.lazada?.packedAt ? ' · packed' : ''}</p>` : ''}
+    ${clockOf(o) ? `<p>${clockHtml(o)} <span class="note">ship by ${when.format(o.deadline)}</span></p>` : ''}
+    ${deliveryText(o) ? `<div class="status ${o.lazada?.status === 'failed_delivery' ? 'bad' : 'info'}"><b>Delivery status</b>${esc(deliveryText(o))}${o.source === 'lazada' ? ` · Lazada order ${esc(o.lazada?.orderId || '')}` : ''}${o.deliveredAt ? ` · delivered ${when.format(o.deliveredAt)}` : o.shippedAt ? ` · shipped ${when.format(o.shippedAt)}` : ''}</div>` : ''}
+    ${o.items?.length ? `<h4>Items to pack</h4><ul class="items2">${o.items.map((i) => `<li><b class="num">${i.qty}×</b> ${esc(i.name)}</li>`).join('')}</ul>` : ''}
     <div class="acts">
       ${['find', 'buy', 'pack'].includes(o.stage) ? `<button class="btn small danger" data-act="tohub" data-id="${esc(o.id)}">${confirmKey === 'hub' + o.id ? 'Tap again: send to hub' : 'Send to 888 hub'}</button>` : ''}
       ${o.stage === 'hub' && o.status === 'assigned' && o.source !== 'lazada' ? `<button class="btn small primary" data-act="hubship" data-id="${esc(o.id)}">Hub: mark shipped</button>` : ''}
       ${o.source === 'lazada' && o.status === 'assigned' ? `<button class="btn small ${o.lazada?.labelAt ? '' : 'primary'}" data-act="lzLabel" data-id="${esc(o.id)}">${o.lazada?.labelAt ? 'Print label again' : 'Print J&amp;T label'}</button>
         <button class="btn small ${o.lazada?.labelAt ? 'primary' : ''}" data-act="lzRts" data-id="${esc(o.id)}" ${o.lazada?.packageIds?.length ? '' : 'disabled'}>${confirmKey === 'rts' + o.id ? 'Tap again: label is on the box' : 'Ready for J&amp;T pickup'}</button>` : ''}
-      ${o.status === 'shipped' ? `<button class="btn small" data-act="deliver" data-id="${esc(o.id)}">Mark delivered</button>` : ''}
+      ${o.source === 'lazada' && o.status === 'shipped' && o.lazada?.packageIds?.length ? `<button class="btn small" data-act="lzLabel" data-id="${esc(o.id)}">Reprint J&amp;T label</button>` : ''}
+      ${o.status !== 'cancelled' ? `<button class="btn small" data-print1="pack" data-id="${esc(o.id)}">Print packing list</button>` : ''}
+      ${o.source !== 'lazada' && o.status !== 'cancelled' ? `<button class="btn small" data-print1="slips" data-id="${esc(o.id)}">Print address slip</button>` : ''}
+      ${o.status === 'shipped' && o.source !== 'lazada' ? `<button class="btn small" data-act="deliver" data-id="${esc(o.id)}">Mark delivered</button>` : ''}
     </div>
     <h4>What happened</h4>
     ${ev ? `<ol class="timeline">${ev.map((e) => `<li><time class="num">${when.format(new Date(e.at))}</time>${esc(say(e))}</li>`).join('')}</ol>` : '<p class="note">Loading…</p>'}
@@ -186,7 +239,7 @@ function detail(o) {
 const shopName = (id) => V.shops.find((s) => s.id === id)?.name ?? id;
 function say(e) {
   const d = e.data || {};
-  return ({ order_paid: 'Paid in Shopify', offer_sent: `Offer to ${shopName(d.shop)} (wave ${d.wave}, ${d.km} km${d.missing?.length ? `, short ${d.missing.length}` : ''})`,
+  return ({ order_paid: 'Order paid', hub_late: 'Hub has not shipped it yet: past the ship-by time', offer_sent: `Offer to ${shopName(d.shop)} (wave ${d.wave}, ${d.km} km${d.missing?.length ? `, short ${d.missing.length}` : ''})`,
     declined: `${shopName(d.shop)} declined (${d.reason === 'shortage' ? "can't get items" : 'busy'})`, offer_expired: `${shopName(d.shop)} didn't answer`,
     accepted: `${shopName(d.shop)} accepted`, accepted_partial: `${shopName(d.shop)} accepted, buying in ${d.missing?.join(', ')}`,
     accepted_without: `${shopName(d.shop)} accepted without ${d.missing?.join(', ')} (paid ${peso(d.payout)})`,
@@ -197,20 +250,67 @@ function say(e) {
     to_hub: `To the 888 hub (${d.reason})`, direct_assigned: `Lazada order to ${shopName(d.shop)}`, order_cancelled: `Cancelled (${d.reason || ''})`, lazada_packed: `Packed in Lazada${d.tracking ? ` · J&T ${d.tracking}` : ''}`, hub_urgent: `To the 888 hub, urgent (${d.reason})`, hub_needs_stock: 'Hub stock not tracked yet' })[e.type] ?? e.type;
 }
 
+let board = 'topack', srcFilter = 'all';
+const picked = new Set();
 function ordersView() {
-  const F = { all: ['All', () => true], find: ['Finding shop', (o) => o.stage === 'find'], work: ['With a shop', (o) => ['buy', 'pack'].includes(o.stage)],
-    hub: ['888 hub', (o) => o.stage === 'hub'], way: ['On the way', (o) => o.stage === 'way'], done: ['Delivered', (o) => o.stage === 'done'] };
-  const list = V.orders.filter(F[filter][1]);
+  const inSrc = (o) => srcFilter === 'all' || (srcFilter === 'lazada' ? o.source === 'lazada' : o.source !== 'lazada');
+  const inBoard = (o, b) => b === 'all' || o.board === b;
+  const list = V.orders.filter((o) => inSrc(o) && inBoard(o, board))
+    .sort((a, b) => (board === 'topack' ? a.deadline - b.deadline : b.paidAt - a.paidAt));
+  for (const id of [...picked]) if (!list.some((o) => o.id === id)) picked.delete(id);
   const o = V.orders.find((x) => x.id === sel) || list[0];
   if (o && !events[o.id]) loadEvents(o.id);
-  return `<div class="two"><section class="card"><h2>Orders</h2>
-    <div class="acts">${Object.entries(F).map(([k, [l, f]]) => `<button class="btn small" data-filter="${k}" aria-pressed="${filter === k}" style="${filter === k ? 'background:var(--ink);color:var(--bg)' : ''}">${l} ${V.orders.filter(f).length}</button>`).join('')}</div>
-    ${list.length ? `<ul class="rows">${list.map((x) => `<li><button class="row" data-open="${esc(x.id)}" aria-current="${o && x.id === o.id}">
-      <b class="num">${esc(x.id)}</b><span class="what"><b>${esc(x.title)}</b><small>${esc(x.area)} · ${esc(x.shopName || 'no shop yet')}</small></span>
-      <span class="right"><span class="pill p-${x.stage}">${STAGE[x.stage]}${x.urgent && x.status === 'assigned' ? ' · urgent' : ''}</span>
-      ${['find', 'buy', 'pack', 'hub'].includes(x.stage) && x.status !== 'shipped' ? `<span class="due num ${x.deadline - V.now < 4 * HOUR ? 'hot' : ''}">ship in ${left(x.deadline - V.now)}</span>` : ''}</span></button></li>`).join('')}</ul>`
-      : '<div class="empty">No orders here.</div>'}</section>
-    ${o ? detail(o) : '<section class="card"><div class="empty">Paid Shopify orders appear here.</div></section>'}</div>`;
+  const sel2 = list.filter((x) => picked.has(x.id)), lz = sel2.filter((x) => x.source === 'lazada'), web = sel2.filter((x) => x.source !== 'lazada');
+  const count = (b) => V.orders.filter((x) => inSrc(x) && inBoard(x, b)).length;
+  const hot = (b) => b === 'topack' && V.orders.some((x) => inSrc(x) && x.board === 'topack' && ['late', 'red'].includes(clockOf(x).level));
+  return `${alarmBar()}<div class="two"><section class="card board"><h2>Orders</h2>
+    <div class="acts">${Object.entries(BOARD).map(([k, l]) => `<button class="btn small ${hot(k) ? 'blink' : ''}" data-board="${k}" aria-pressed="${board === k}" style="${board === k ? 'background:var(--ink);color:var(--bg)' : ''}">${l} <span class="num">${count(k)}</span></button>`).join('')}</div>
+    <div class="chips">${[['all', 'Lazada + website'], ['lazada', 'Lazada'], ['web', 'Website']].map(([k, l]) => `<button class="btn small" data-src="${k}" aria-pressed="${srcFilter === k}" style="${srcFilter === k ? 'border-color:var(--ink);font-weight:700' : ''}">${l}</button>`).join('')}</div>
+    ${list.length ? `<label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-pickall ${sel2.length && sel2.length === list.length ? 'checked' : ''}> Select all ${list.length}</label>` : ''}
+    ${sel2.length ? `<div class="bulk"><b>${sel2.length} selected</b>
+      <button class="btn small" data-print="pick">Print pick list</button><button class="btn small" data-print="pack">Print packing lists</button>
+      ${lz.length ? `<button class="btn small" data-print="labels">Print J&amp;T labels (${lz.length} Lazada)</button>` : ''}
+      ${web.length ? `<button class="btn small" data-print="slips">Print address slips (${web.length} website)</button>` : ''}</div>` : ''}
+    ${list.length ? `<ul class="rows">${list.map((x) => `<li><div class="row" aria-current="${o && x.id === o.id}">
+      <input type="checkbox" data-pick="${esc(x.id)}" ${picked.has(x.id) ? 'checked' : ''} aria-label="Select ${esc(x.id)}">
+      <button class="what" data-open="${esc(x.id)}"><span class="src ${x.source === 'lazada' ? '' : 'web'}">${x.source === 'lazada' ? 'Lazada' : 'Website'}</span> <span class="num">${esc(x.id)}</span>
+        <b>${esc(x.title)}</b><small>${esc(x.area)} · ${esc(x.shopName || 'no shop yet')}${deliveryText(x) ? ' · ' + esc(deliveryText(x)) : ''}</small></button>
+      <span class="right">${clockHtml(x) || `<span class="pill p-${x.stage}">${BOARD[x.board]}</span>`}
+        ${x.board === 'topack' ? `<small class="due">${x.source === 'lazada' ? (x.lazada?.labelAt ? 'label printed' : x.lazada?.packedAt ? 'packed' : 'not packed yet') : STAGE[x.stage]}</small>` : ''}</span></div></li>`).join('')}</ul>`
+      : `<div class="empty">No ${BOARD[board].toLowerCase()} orders.</div>`}</section>
+    ${o ? detail(o) : '<section class="card"><div class="empty">Lazada and website orders appear here.</div></section>'}</div>`;
+}
+
+// ---------- Printing: pick list, packing lists, address slips (website orders until the J&T account is ready) ----------
+function printDoc(title, body) {
+  const w = window.open('', '_blank'); if (!w) { toast('Allow pop-ups to print'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+    body{font:14px/1.4 Arial,sans-serif;margin:16px;color:#000} h1{font-size:18px;margin:0 0 8px} h2{font-size:16px;margin:0 0 4px}
+    table{width:100%;border-collapse:collapse} th,td{border:1px solid #000;padding:5px 7px;text-align:left} td.q{text-align:right;width:60px;font-weight:700}
+    .sheet{page-break-after:always;border:2px solid #000;padding:12px;margin-bottom:16px} .sheet:last-child{page-break-after:auto}
+    .slip{width:96mm;min-height:60mm} .big{font-size:20px;font-weight:700} .box{display:inline-block;width:14px;height:14px;border:1.5px solid #000;margin-right:6px;vertical-align:middle}
+    @media print{button{display:none}}</style></head><body><button onclick="print()" style="font-size:16px;padding:8px 14px;margin-bottom:12px">Print</button>${body}</body></html>`);
+  w.document.close();
+}
+function printPick(list) {
+  const tot = new Map();
+  const add = (key, name, qty, id) => { const t = tot.get(key) ?? { name, qty: 0, orders: new Set() }; t.qty += qty; t.orders.add(id); tot.set(key, t); };
+  // Bundles are opened into the products inside them, so the picker takes the real items off the shelf.
+  for (const o of list) for (const i of o.items) { if (i.contents?.length) for (const [q, n] of i.contents) add('n:' + n, n, q * i.qty, o.id); else add(i.sku, i.name, i.qty, o.id); }
+  const rows = [...tot.values()].sort((a, b) => a.name.localeCompare(b.name));
+  printDoc('Pick list', `<h1>888 pick list · ${list.length} order${list.length > 1 ? 's' : ''} · ${when.format(Date.now())}</h1>
+    <table><thead><tr><th></th><th>Item</th><th>Qty</th><th>For orders</th></tr></thead><tbody>${rows.map((r) => `<tr><td style="width:24px"><span class="box"></span></td><td>${esc(r.name)}</td><td class="q">${r.qty}</td><td>${[...r.orders].map(esc).join(', ')}</td></tr>`).join('')}</tbody></table>`);
+}
+function printPacking(list) {
+  printDoc('Packing lists', list.map((o) => `<div class="sheet"><h2>${o.source === 'lazada' ? 'Lazada' : 'Website'} order ${esc(o.id)}</h2>
+    <p>${esc(o.title)}<br>Ship by <b>${when.format(o.deadline)}</b>${o.lazada?.tracking ? ` · J&amp;T ${esc(o.lazada.tracking)}` : ''}</p>
+    <table><thead><tr><th></th><th>Item</th><th>Qty</th></tr></thead><tbody>${o.items.map((i) => `<tr><td style="width:24px"><span class="box"></span></td><td>${esc(i.name)}${i.contents?.length ? `<br><small>= ${i.contents.map(([q, n]) => `${q * i.qty} × ${esc(n)}`).join(', ')}</small>` : ''}</td><td class="q">${i.qty}</td></tr>`).join('')}</tbody></table>
+    ${o.dropped?.length ? `<p><b>Do not pack:</b> ${o.dropped.map(esc).join(', ')}</p>` : ''}<p>Packed by: ____________ &nbsp; Checked by: ____________</p></div>`).join(''));
+}
+function printSlips(list) {
+  printDoc('Address slips', list.map((o) => { const r = o.recipient || {}; return `<div class="sheet slip"><div>FROM: 888 Grocery</div><hr>
+    <div>TO:</div><div class="big">${esc(r.name)}</div><div>${esc(r.phone)}</div><div>${esc(r.address)}, ${esc(r.city)}${r.province ? ', ' + esc(r.province) : ''} ${esc(r.zip || '')}</div><hr>
+    <div>Order <b>${esc(o.id)}</b> · ${o.items.reduce((t, i) => t + i.qty, 0)} items</div>${o.note ? `<div>Note: ${esc(o.note)}</div>` : ''}</div>`; }).join(''));
 }
 
 function shopsView() {
@@ -296,7 +396,9 @@ function render() {
   const att = attention().length;
   document.getElementById('tabs').hidden = false;
   for (const b of document.querySelectorAll('[data-tab]')) { b.setAttribute('aria-selected', String(b.dataset.tab === tab)); if (b.dataset.tab === 'overview') b.innerHTML = `Overview${att ? `<span class="badge num">${att}</span>` : ''}`; }
-  document.getElementById('view').innerHTML = { overview, orders: ordersView, shops: shopsView, payouts: payoutsView, rules: rulesView }[tab]();
+  document.getElementById('view').innerHTML = (tab === 'orders' ? '' : alarmBar()) + { overview, orders: ordersView, shops: shopsView, payouts: payoutsView, rules: rulesView }[tab]();
+  const { late, red } = alarms();
+  document.title = late.length || red.length ? `⚠ ${late.length + red.length} to ship NOW · 888 Admin` : '888 Dispatch Admin';
   document.getElementById('updated').textContent = `Updated ${when.format(Date.now())}`;
 }
 async function loadEvents(id) { try { const r = await call('GET', null, `?events=${encodeURIComponent(id)}`); events[id] = r.events; if (tab === 'orders') render(); } catch {} }
@@ -307,6 +409,21 @@ document.addEventListener('click', async (ev) => {
   const twice = (k) => { if (confirmKey === k) { confirmKey = null; return true; } confirmKey = k; render(); return false; };
   if (b.dataset.tab) { tab = b.dataset.tab; confirmKey = null; render(); return; }
   if (b.dataset.filter) { filter = b.dataset.filter; sel = null; render(); return; }
+  if (b.dataset.board) { board = b.dataset.board; sel = null; picked.clear(); render(); return; }
+  if (b.dataset.goboard) { tab = 'orders'; board = b.dataset.goboard; sel = null; render(); scrollTo(0, 0); return; }
+  if (b.dataset.src) { srcFilter = b.dataset.src; sel = null; picked.clear(); render(); return; }
+  if (b.dataset.print1) { const x = V.orders.find((o) => o.id === b.dataset.id); if (x) (b.dataset.print1 === 'pack' ? printPacking : printSlips)([x]); return; }
+  if (b.dataset.print) {
+    const list = V.orders.filter((o) => picked.has(o.id));
+    if (b.dataset.print === 'pick') printPick(list);
+    if (b.dataset.print === 'pack') printPacking(list);
+    if (b.dataset.print === 'slips') printSlips(list.filter((o) => o.source !== 'lazada'));
+    if (b.dataset.print === 'labels') {
+      const w = labelTab(); const r = await act({ act: 'lzLabels', orderIds: list.filter((o) => o.source === 'lazada').map((o) => o.id) }, 'Labels ready');
+      showLabel(w, r?.ok ? r.label : null); if (r?.errors?.length) toast(`Some were skipped: ${r.errors.join('; ')}`);
+    }
+    return;
+  }
   if (b.dataset.open) { sel = b.dataset.open; tab = 'orders'; delete events[sel]; render(); return; }
   if (b.hasAttribute('data-logout')) { logout(); return; }
   if (b.dataset.copymsg) {
@@ -345,8 +462,16 @@ document.addEventListener('submit', async (ev) => {
   if (f.id === 'ownerform') await act({ act: 'ownerPhone', phone: document.getElementById('o-phone').value }, 'Saved');
   if (f.id === 'payout') await act({ act: 'payoutRule', share: Number(document.getElementById('p-share').value) / 100, packingFee: Number(document.getElementById('p-fee').value) }, 'Shop pay saved');
 });
-document.addEventListener('change', async (ev) => { const t = ev.target; if (t.dataset.rule) await act({ act: 'rule', path: t.dataset.rule, value: Number(t.value) }, 'Rule saved'); });
+document.addEventListener('change', async (ev) => { const t = ev.target;
+  if (t.dataset.pick) { if (t.checked) picked.add(t.dataset.pick); else picked.delete(t.dataset.pick); render(); return; }
+  if (t.hasAttribute('data-pickall')) { for (const x of document.querySelectorAll('[data-pick]')) { if (t.checked) picked.add(x.dataset.pick); else picked.delete(x.dataset.pick); } render(); return; }
+  if (t.dataset.rule) await act({ act: 'rule', path: t.dataset.rule, value: Number(t.value) }, 'Rule saved'); });
 
+setInterval(() => {
+  if (!V) return;
+  for (const el of document.querySelectorAll('[data-clock]')) { const o = V.orders.find((x) => x.id === el.dataset.clock); const c = o && clockOf(o); if (!c) continue;
+    el.textContent = clockText(c); el.className = `clock num ${c.level} ${['red', 'late'].includes(c.level) ? 'blink' : ''}`; }
+}, 1000);
 setInterval(() => { if (KEY && !busy && !document.activeElement?.matches('input, select')) load(); }, 20000);
 if (KEY) { document.getElementById('view').innerHTML = '<div class="empty"><b>Loading…</b></div>'; load(); } else loginView();
 </script>

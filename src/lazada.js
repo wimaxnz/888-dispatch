@@ -23,6 +23,16 @@ export function lazadaStage(items) {
   return 'unknown';
 }
 
+// Lazada's own status for the order (furthest along of its live items), e.g. 'pending', 'packed',
+// 'ready_to_ship' (waiting for J&T), 'shipped' (with J&T), 'delivered', 'canceled'. Shown on the order board.
+const ORDER_OF = ['unpaid', 'pending', 'topack', 'repacked', 'packed', 'toship', 'ready_to_ship_pending', 'ready_to_ship', 'shipped', 'failed_delivery', 'delivered', 'confirmed'];
+export function lazadaRawStatus(items) {
+  const st = (items ?? []).map((i) => String(i.status ?? '').toLowerCase()).filter(Boolean);
+  const live = st.filter((s) => !CANCELLED.includes(s));
+  if (!live.length) return st[0] ?? 'unknown';
+  return live.reduce((a, b) => (ORDER_OF.indexOf(b) > ORDER_OF.indexOf(a) ? b : a));
+}
+
 // Lazada time "2026-11-20 13:57:23 +0800" -> ms.
 export function lazTime(s) {
   if (s == null || s === '') return null;

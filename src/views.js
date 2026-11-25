@@ -12,6 +12,19 @@ const stage = (d, o) => {
   return 'pack';
 };
 
+// Order board column, like Lazada Seller Center: to pack -> waiting for pickup -> shipping -> delivered (or cancelled).
+// A Lazada order marked "ready to ship" stays in "waiting for pickup" until Lazada says J&T has it.
+export function boardOf(o) {
+  if (o.status === 'cancelled') return 'cancelled';
+  if (o.status === 'delivered') return 'done';
+  if (o.status === 'shipped') {
+    const st = o.lazada?.status;
+    if ((o.source ?? 'shopify') === 'lazada' && !['shipped', 'failed_delivery', 'delivered', 'confirmed'].includes(st)) return 'pickup';
+    return 'shipping';
+  }
+  return 'topack';
+}
+
 const rank = (o) => (['buy', 'pack', 'hub'].includes(o.stage) ? 0 : o.stage === 'way' ? 1 : 2); // work to do first
 const area = (o) => [o.recipient?.city, o.recipient?.province].filter(Boolean).join(', ') || o.address.island;
 
@@ -63,7 +76,7 @@ export function adminView(d, extra, now) {
     const pkg = d.pkg(o), shop = d.shops.get(o.shopId);
     const accepted = o.offer && o.offer.shopId === o.shopId;
     return {
-      id: o.id, title: pkg.name, stage: stage(d, o), urgent: !!o.urgent, paidAt: o.paidAt, deadline: o.deadline,
+      id: o.id, title: pkg.name, stage: stage(d, o), board: boardOf(o), urgent: !!o.urgent, paidAt: o.paidAt, deadline: o.deadline,
       shopId: o.shopId, shopName: shop?.name ?? null, wave: o.wave, area: area(o), recipient: o.recipient ?? null, buyer: o.buyer ?? null,
       sale: pkg.price * o.qty, refund: o.buyerChoice?.status === 'later' ? 0 : o.refund, missingRefund: o.refund,
       buyerChoice: o.buyerChoice ?? null, followUpOf: o.followUpOf ?? null, droppedNames: o.dropped.map((x) => x.name), cost: !shop ? d.payoutFor(o) : shop.hub ? d.payoutFor(o) : (o.payout?.amount ?? (accepted ? o.offer.payout : d.payoutFor(o))),
@@ -72,6 +85,7 @@ export function adminView(d, extra, now) {
       dropped: o.dropped.map((x) => `${x.qty} × ${x.name}`), lines: o.lines ?? [], status: o.status,
       shippedAt: o.shippedAt ?? null, deliveredAt: o.deliveredAt ?? null, locatedBy: o.locatedBy ?? null,
       source: o.source ?? 'shopify', lazada: o.lazada ?? null, cancelledAt: o.cancelledAt ?? null,
+      items: d.need(o).map((n) => ({ sku: n.sku, name: n.name, qty: n.qty, contents: (o.lines ?? []).find((l) => l.title === n.name && l.contents)?.contents ?? null })), courier: o.courier ?? null, note: o.note ?? '',
     };
   }).sort((a, b) => b.paidAt - a.paidAt);
   const shops = [...d.shops.values()].map((s) => {

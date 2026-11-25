@@ -16,7 +16,7 @@ import { buildCatalog } from './catalog.js';
 import { locate } from './places.js';
 import { shopView, adminView } from './views.js';
 import { normalizePH, textsFor, manualText } from './sms.js';
-import { fromLazada, skuMap, lazadaStage, lazadaTracking, packReq, labelReq, rtsReq, packResult, rtsErrors } from './lazada.js';
+import { fromLazada, skuMap, lazadaStage, lazadaRawStatus, lazadaTracking, packReq, labelReq, rtsReq, packResult, rtsErrors } from './lazada.js';
 import { itemsFromProducts, buildPack, priceBatch, validateBatch, voucherCode, prefixFor, voucherState, packDeadline,
   voucherPackage, cleanRecipient, forecast, VOUCHER_DEFAULTS, roundTo10, splitAmount, voucherPayments, cleanBuyer, BATCH_PROP, voucherPhp, validateSelf, packForCard, giftCardCode } from './vouchers.js';
 
@@ -148,14 +148,15 @@ async function onLazada(req: Request) {
   for (const { order, items } of (orders ?? []).slice(0, 100)) {
     const lazId = String(order?.order_id ?? '');
     if (!lazId) continue;
-    const stage = lazadaStage(items);
-    const { data: seen } = await db.from('lazada_orders').select('stage').eq('order_id', lazId).maybeSingle();
-    if (seen && seen.stage === stage) continue; // nothing new
+    const stage = lazadaStage(items), raw = lazadaRawStatus(items);
+    const { data: seen } = await db.from('lazada_orders').select('stage, payload').eq('order_id', lazId).maybeSingle();
+    if (seen && seen.stage === stage && lazadaRawStatus(seen.payload?.items) === raw) continue; // nothing new
     if (!seen) await db.from('lazada_orders').insert({ order_id: lazId, stage, payload: { order, items } });
     else await db.from('lazada_orders').update({ stage, payload: { order, items }, updated_at: new Date().toISOString() }).eq('order_id', lazId);
     const id = `LZ-${lazId}`;
     const result: any = await withState(({ d, extra, now }) => {
       const known = d.orders.get(id);
+      if (known?.lazada && known.lazada.status !== raw) { known.lazada.status = raw; known.lazada.statusAt = now; if (!known.lazada.tracking) known.lazada.tracking = lazadaTracking(items); }
       if (!known) {
         // Orders that were already shipped/finished before this link existed are only recorded.
         if (stage !== 'new') return { history: stage };
@@ -166,6 +167,7 @@ async function onLazada(req: Request) {
         if (!r.order.address) { const s = d.shops.get(r.order.shopId) ?? d.hub(); r.order.address = { lat: s.lat, lng: s.lng, island: s.island }; }
         d.packages.set(r.package.id, r.package);
         const o = d.assignDirect(r.order);
+        o.lazada.status = raw; o.lazada.statusAt = now;
         return { assigned: o.shopId };
       }
       if (stage === 'cancelled') return d.cancel(id, now, 'Lazada: cancelled');
@@ -251,6 +253,23 @@ async function lazadaShip(act: string, orderId: string, who: string | null): Pro
   }
 }
 
+// Several Lazada orders on one label file (bulk print / reprint). Packs any that aren't packed yet.
+async function lazadaLabels(ids: string[]): Promise<any> {
+  const errors: string[] = [];
+  for (const id of ids.slice(0, 50)) { const r = await lazadaShip('lzPack', id, null); if (!r.ok) errors.push(`${id}: ${r.reason}`); }
+  const { d } = await readState();
+  const done = ids.filter((id) => d.orders.get(id)?.lazada?.packageIds?.length && d.orders.get(id)?.status !== 'cancelled');
+  const pk = [...new Set(done.flatMap((id) => d.orders.get(id).lazada.packageIds))];
+  if (!pk.length) return { ok: false, reason: errors.join('; ') || 'No Lazada orders to print.' };
+  try {
+    const r = await lazadaCall('/order/package/document/get', labelReq(pk));
+    const data = r?.result?.data ?? {};
+    if (!data.file && !data.pdf_url) return { ok: false, reason: `No labels from Lazada yet (${r?.result?.error_msg ?? 'try again in a minute'}).` };
+    await withState(({ d, now }) => { for (const id of done) { const x = d.orders.get(id); if (x?.lazada && !x.lazada.labelAt) x.lazada.labelAt = now; } });
+    return { ok: true, label: { file: data.file ?? null, url: data.pdf_url ?? null }, printed: done.length, errors };
+  } catch (e) { return { ok: false, reason: String((e as Error).message ?? e).slice(0, 200) }; }
+}
+
 // ---------- Shops ----------
 async function shopIdFor(token: string | null) {
   if (!token || token.length < 20) return null;
@@ -311,8 +330,9 @@ async function onAdmin(req: Request, url: URL) {
     return json(adminView(d, extra, now));
   }
   const body = await req.json();
-  if (['lzPack', 'lzLabel', 'lzRts'].includes(body.act)) {
-    const result = await lazadaShip(body.act, String(body.orderId), null);
+  if (['lzPack', 'lzLabel', 'lzRts', 'lzLabels'].includes(body.act)) {
+    const result = body.act === 'lzLabels' ? await lazadaLabels((Array.isArray(body.orderIds) ? body.orderIds : []).map(String))
+      : await lazadaShip(body.act, String(body.orderId), null);
     const { d, extra, now } = await readState();
     return json({ result, view: adminView(d, extra, now) });
   }

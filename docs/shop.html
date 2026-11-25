@@ -59,6 +59,9 @@
 .alarm-earn { font: 800 26px var(--f-head) }
 .alarm-go { background: #fff; color: #7a1712; border-color: #fff; font-size: 20px; min-height: 64px; margin-top: 10px }
 .alarm-note { font-size: 13px; opacity: .85 }
+.deadline.urgent { background: var(--bad); color: #fff; animation: urg 1s ease-in-out infinite alternate }
+@keyframes urg { to { opacity: .55 } }
+@media (prefers-reduced-motion: reduce) { .deadline.urgent { animation: none } }
 </style>
 </head>
 <body>
@@ -335,9 +338,10 @@ function orderCard(o) {
     body = `<div class="status bad"><b>888 is sending this one</b></div>`;
   }
   return `<article class="card">${head}${bar}
-    ${o.recipient ? `<div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}${r.province ? ', ' + esc(r.province) : ''}</div>` : ''}
+    ${o.recipient && o.source === 'lazada' ? `<div class="to"><b>Lazada buyer · ${esc(r.city)}</b>Name and address are on the J&amp;T label.</div>` : ''}
+    ${o.recipient && o.source !== 'lazada' ? `<div class="to"><b>${esc(r.name)} · ${esc(r.phone)}</b>${esc(r.address)}, ${esc(r.city)}${r.province ? ', ' + esc(r.province) : ''}</div>` : ''}
     ${o.note ? `<p class="note">Note from the buyer: “${esc(o.note)}”</p>` : ''}
-    ${live ? `<div class="deadline"><span>Ship by ${when.format(o.deadline)}</span><b class="num" data-until="${o.deadline}">${left(o.deadline - now())}</b></div>` : ''}
+    ${live ? `<div class="deadline ${o.deadline - now() < 2 * 3600e3 ? 'urgent' : ''}"><span>${o.deadline < now() ? 'LATE! Ship now. Was due' : 'Ship by'} ${when.format(o.deadline)}</span><b class="num" data-until="${o.deadline}">${left(o.deadline - now())}</b></div>` : ''}
 
     ${body}</article>`;
 }

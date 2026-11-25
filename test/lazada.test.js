@@ -5,8 +5,8 @@ import { Dispatcher } from '../src/engine.js';
 import { config } from '../src/config.js';
 import { buildCatalog } from '../src/catalog.js';
 import { snapshot, restore, prune } from '../src/store.js';
-import { fromLazada, skuMap, lazadaStage, lazTime, lazadaTracking, packReq, labelReq, rtsReq, packResult, rtsErrors } from '../src/lazada.js';
-import { shopView, adminView } from '../src/views.js';
+import { fromLazada, skuMap, lazadaStage, lazadaRawStatus, lazTime, lazadaTracking, packReq, labelReq, rtsReq, packResult, rtsErrors } from '../src/lazada.js';
+import { shopView, adminView, boardOf } from '../src/views.js';
 import { textsFor } from '../src/sms.js';
 
 const HOUR = 3_600_000, DAY = 24 * HOUR;
@@ -160,4 +160,21 @@ test('a new Lazada order keeps its item ids (needed to pack it) and the shop see
   const mine = shopView(d, 'iba', catalog, Date.now()).orders.find((x) => x.id === o.id);
   assert.equal(mine.lazada.tracking, 'JT123');
   assert.equal(mine.lazada.labelAt, 2);
+});
+
+test("Lazada's own status: the furthest-along live item wins; cancelled items are ignored", () => {
+  assert.equal(lazadaRawStatus([{ status: 'pending' }, { status: 'packed' }]), 'packed');
+  assert.equal(lazadaRawStatus([{ status: 'ready_to_ship' }, { status: 'canceled' }]), 'ready_to_ship');
+  assert.equal(lazadaRawStatus([{ status: 'shipped' }, { status: 'delivered' }]), 'delivered');
+  assert.equal(lazadaRawStatus([{ status: 'canceled' }]), 'canceled');
+});
+
+test('order board columns follow Lazada Seller Center: to pack, waiting for pickup, shipping, delivered, cancelled', () => {
+  assert.equal(boardOf({ status: 'assigned', source: 'lazada' }), 'topack');
+  assert.equal(boardOf({ status: 'dispatching' }), 'topack');
+  assert.equal(boardOf({ status: 'shipped', source: 'lazada', lazada: { status: 'ready_to_ship' } }), 'pickup');
+  assert.equal(boardOf({ status: 'shipped', source: 'lazada', lazada: { status: 'shipped' } }), 'shipping');
+  assert.equal(boardOf({ status: 'shipped', source: 'shopify' }), 'shipping');
+  assert.equal(boardOf({ status: 'delivered' }), 'done');
+  assert.equal(boardOf({ status: 'cancelled', source: 'lazada' }), 'cancelled');
 });

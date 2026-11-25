@@ -10,6 +10,7 @@ import { config } from '../src/config.js';
 import { buildCatalog } from '../src/catalog.js';
 import { fromShopify, PAYOUT } from '../src/shopify.js';
 import { shopView, adminView } from '../src/views.js';
+import { fromLazada, skuMap } from '../src/lazada.js';
 
 const catalog = buildCatalog();
 const V = (t) => [...catalog.byVariant.values()].find((v) => v.title === t).variantId;
@@ -31,6 +32,21 @@ for (const i of catalog.stockItems) shop.stock[i.sku] = 6;
 shop.stock[[...catalog.packs.values()][0].items.find((i) => i.name.includes('Nescaf')).sku] = 0;
 order(1001, [['Tipid Starter Pack', 1]]);
 order(1002, [['Spam Luncheon Meat Classic 340g', 2], ['Ulam Essentials', 1]]);
+const lzItem = (oid, n, over = {}) => ({ order_id: oid, order_item_id: oid * 10 + n, sku: '888-LUTONGBAHAY', name: 'Lutong-Bahay Essentials Bundle', item_price: 673.75, status: 'pending', warehouse_code: 'dropshipping', ...over });
+const lzOrder = (oid, minutesLeft, wh, extraItem = {}) => {
+  const items = [lzItem(oid, 1, { warehouse_code: wh, ...extraItem })];
+  const r = fromLazada({ order_id: oid, created_at: '', price: '673.75', payment_method: 'COD', address_shipping: { city: 'Iba' } }, items,
+    { catalog, bySku: skuMap([]), shopForWarehouse: (c) => (c === 'WH-TAL' ? 'talisay' : null) });
+  d.packages.set(r.package.id, r.package);
+  const o = d.assignDirect({ ...r.order, paidAt: Date.now() - HOURS(2), deadline: Date.now() + minutesLeft * 60000, address: r.order.address ?? { lat: 15.3, lng: 119.98, island: 'Luzon' } });
+  o.lazada.status = extraItem.status ?? 'pending';
+  return o;
+};
+const HOURS = (h) => h * 3600000;
+lzOrder(5001, 90, 'dropshipping');
+lzOrder(5002, 300, 'WH-TAL');
+lzOrder(5003, -20, 'dropshipping');
+const w = lzOrder(5004, 600, 'dropshipping'); w.lazada.packageIds = ['FP5004']; w.lazada.tracking = 'JT0001234567'; w.lazada.labelAt = Date.now(); d.ship(w.id, 'hub', 'JT0001234567', Date.now()); w.lazada.status = 'ready_to_ship';
 extra.manual.push({ id: 'M-1003', ref: '1003', reason: 'Address is outside the Philippines', recipient: { name: 'Jun Santos', city: 'Auckland' }, items: [{ qty: 1, title: 'Tipid Starter Pack' }], status: 'todo' });
 
 const send = (res, code, body, type = 'application/json') => { res.writeHead(code, { 'content-type': type, 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type, x-admin-key' }); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
@@ -39,7 +55,7 @@ http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return send(res, 204, '', 'text/plain');
   if (req.method === 'GET' && /\.(html|css|png)$/.test(url.pathname)) {
     const f = url.pathname.slice(1); const type = f.endsWith('.css') ? 'text/css' : f.endsWith('.png') ? 'image/png' : 'text/html; charset=utf-8';
-    try { const data = readFileSync(new URL(`../${f.endsWith('.png') ? 'shop-logo.png' : 'web/' + f}`, import.meta.url)); res.writeHead(200, { 'content-type': type }); return res.end(data); } catch { return send(res, 404, { error: 'nf' }); }
+    try { const data = readFileSync(new URL(`../docs/${f}`, import.meta.url)); res.writeHead(200, { 'content-type': type }); return res.end(data); } catch { return send(res, 404, { error: 'nf' }); }
   }
   let body = {}; if (req.method === 'POST') { let s = ''; for await (const c of req) s += c; body = JSON.parse(s || '{}'); }
   const now = Date.now(); d.tick(now);
@@ -75,6 +91,12 @@ http.createServer(async (req, res) => {
       case 'clearStrikes': s.strikes = 0; break;
       case 'tohub': if (o.status === 'assigned') d.release(o); d.toHub(o, now, 'sent by admin', true); break;
       case 'hubship': r = d.ship(o.id, 'hub', 'HUB', now); break;
+      case 'lzLabel': case 'lzLabels': case 'lzPack': {
+        const ids = body.orderIds ?? [body.orderId];
+        for (const id of ids) { const x = d.orders.get(id); if (x?.lazada) { x.lazada.packageIds ??= ['FP' + id]; x.lazada.packageIds = x.lazada.packageIds.length ? x.lazada.packageIds : ['FP' + id]; x.lazada.tracking ??= 'JT-MOCK-' + id.slice(-4); x.lazada.packedAt ??= now; x.lazada.labelAt ??= now; } }
+        r = { ok: true, label: { file: Buffer.from(`<h1>MOCK J&T LABEL</h1><p>${ids.join(', ')}</p>`).toString('base64'), url: null } }; break;
+      }
+      case 'lzRts': { o.lazada.rtsAt = now; r = d.ship(o.id, o.shopId, o.lazada.tracking ?? 'LAZADA', now); o.lazada.status = 'ready_to_ship'; break; }
       case 'deliver': r = d.deliver(o.id, now); break;
       case 'pay': { const l = [...d.orders.values()].filter((x) => x.payout?.shop === body.shopId && x.payout.status === 'payable'); const amount = l.reduce((t, x) => t + x.payout.amount, 0); l.forEach((x) => { x.payout.status = 'paid'; }); extra.payments.push({ at: now, shop: body.shopId, orders: l.length, amount }); r = { ok: true, amount }; break; }
       case 'setPhone': s.phone = body.phone; break;
