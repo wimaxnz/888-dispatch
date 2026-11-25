@@ -39,6 +39,19 @@ async function callAuth(path: string, extra: Record<string, string>) {
   return out;
 }
 
+// Signed GET to the Philippines Lazada API with the saved shop token (read calls only).
+async function callApi(path: string, extra: Record<string, string>) {
+  const appSecret = await secret('lazada_app_secret');
+  const { data: tok } = await db.from('lazada_tokens').select('access_token').eq('id', 1).maybeSingle();
+  if (!appSecret || !tok?.access_token) throw new Error('not_connected');
+  const params: Record<string, string> = { app_key: APP_KEY, timestamp: String(Date.now()), sign_method: 'sha256', access_token: tok.access_token, ...extra };
+  params.sign = await lazadaSign(appSecret, path, params);
+  const res = await fetch('https://api.lazada.com.ph/rest' + path + '?' + new URLSearchParams(params));
+  const out = await res.json().catch(() => ({}));
+  if (out.code && out.code !== '0') throw new Error(`lazada_${out.code}: ${out.message ?? ''}`);
+  return out;
+}
+
 async function save(t: any) {
   const now = Date.now();
   const row = {
@@ -70,6 +83,22 @@ Deno.serve(async (req) => {
       const row = await save(await callAuth('/auth/token/refresh', { refresh_token: cur.refresh_token }));
       return Response.json({ ok: true, renewed: true, expires_at: row.expires_at });
     }
+    // Read-only product list (name, SKU, price, sale price, stock) for planning campaigns. x-cron-key only.
+    if (req.method === 'POST' && url.pathname.endsWith('/products')) {
+      if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return new Response('forbidden', { status: 403 });
+      const out: unknown[] = [];
+      for (let offset = 0; offset < 1000; offset += 50) {
+        const r = await callApi('/products/get', { filter: 'all', offset: String(offset), limit: '50' });
+        const prods = r?.data?.products ?? [];
+        for (const p of prods) for (const s of p.skus ?? []) out.push({
+          item_id: p.item_id, status: p.status, name: p.attributes?.name, seller_sku: s.SellerSku, sku_id: s.SkuId,
+          price: Number(s.price), special_price: s.special_price != null ? Number(s.special_price) : null,
+          special_from: s.special_from_date ?? null, special_to: s.special_to_date ?? null, quantity: s.quantity, sku_status: s.Status,
+        });
+        if (prods.length < 50) break;
+      }
+      return Response.json({ ok: true, count: out.length, skus: out });
+    }
     if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
 
     const code = url.searchParams.get('code');
@@ -87,6 +116,7 @@ Deno.serve(async (req) => {
     const msg = String((e as Error).message ?? e);
     console.error('lazada-auth', msg);
     if (msg === 'missing_secret') return page('One step first', 'The Lazada App Secret is not saved yet. Paste it into Supabase <b>app_secrets</b> as <b>lazada_app_secret</b>, then open this link again.', 400);
+    if (url.pathname.endsWith('/products')) return Response.json({ ok: false, error: msg }, { status: 500 });
     return page('Lazada did not connect', `Lazada answered: ${esc(msg)}. Open this link again to retry; the sign-in code only works once and only for a few minutes.`, 400);
   }
 });
