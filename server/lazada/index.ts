@@ -2,6 +2,7 @@
 //   GET  /lazada-auth             -> sends the owner to Lazada's "Authorize" page for app 144841
 //   GET  /lazada-auth?code=...    -> Lazada sends the owner back here; we swap the code for shop tokens
 //   POST /lazada-auth/refresh     -> daily from pg_cron (x-cron-key): renews the access token before it runs out
+//   POST /lazada-auth/fulfil      -> from the dispatch "api" function only (x-cron-key): pack / shipping label / ready to ship
 // The App Secret lives only in app_secrets.lazada_app_secret (pasted by the owner). Tokens are kept in
 // public.lazada_tokens (RLS on, no policies: only the service role can read them) and never shown on a page.
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
@@ -39,14 +40,16 @@ async function callAuth(path: string, extra: Record<string, string>) {
   return out;
 }
 
-// Signed GET to the Philippines Lazada API with the saved shop token (read calls only).
-async function callApi(path: string, extra: Record<string, string>) {
+// Signed call to the Philippines Lazada API with the saved shop token (GET for reads, POST for the shipping steps).
+async function callApi(path: string, extra: Record<string, string>, method: 'GET' | 'POST' = 'GET') {
   const appSecret = await secret('lazada_app_secret');
   const { data: tok } = await db.from('lazada_tokens').select('access_token').eq('id', 1).maybeSingle();
   if (!appSecret || !tok?.access_token) throw new Error('not_connected');
   const params: Record<string, string> = { app_key: APP_KEY, timestamp: String(Date.now()), sign_method: 'sha256', access_token: tok.access_token, ...extra };
   params.sign = await lazadaSign(appSecret, path, params);
-  const res = await fetch('https://api.lazada.com.ph/rest' + path + '?' + new URLSearchParams(params));
+  const res = method === 'GET'
+    ? await fetch('https://api.lazada.com.ph/rest' + path + '?' + new URLSearchParams(params))
+    : await fetch('https://api.lazada.com.ph/rest' + path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=utf-8' }, body: new URLSearchParams(params) });
   const out = await res.json().catch(() => ({}));
   if (out.code && out.code !== '0') throw new Error(`lazada_${out.code}: ${out.message ?? ''}`);
   return out;
@@ -132,6 +135,17 @@ Deno.serve(async (req) => {
       if (!READ.includes(path)) return Response.json({ ok: false, error: 'path not allowed' }, { status: 400 });
       return Response.json(await callApi(path, params ?? {}));
     }
+    // Shipping steps, called only by the dispatch server (which checks who may ship which order).
+    // Body: { path, body } where body is the documented request object for that path.
+    if (req.method === 'POST' && url.pathname.endsWith('/fulfil')) {
+      if (!same(req.headers.get('x-cron-key'), await secret('cron_key'))) return new Response('forbidden', { status: 403 });
+      const { path, body } = await req.json();
+      const PARAM: Record<string, string> = { '/order/fulfill/pack': 'packReq', '/order/package/document/get': 'getDocumentReq', '/order/package/rts': 'readyToShipReq' };
+      if (!PARAM[path] || typeof body !== 'object') return Response.json({ ok: false, error: 'path not allowed' }, { status: 400 });
+      const out = await callApi(path, { [PARAM[path]]: JSON.stringify(body) }, 'POST');
+      console.log('lazada fulfil', path, JSON.stringify(out).slice(0, 400));
+      return Response.json(out);
+    }
     if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
 
     const code = url.searchParams.get('code');
@@ -149,7 +163,7 @@ Deno.serve(async (req) => {
     const msg = String((e as Error).message ?? e);
     console.error('lazada-auth', msg);
     if (msg === 'missing_secret') return page('One step first', 'The Lazada App Secret is not saved yet. Paste it into Supabase <b>app_secrets</b> as <b>lazada_app_secret</b>, then open this link again.', 400);
-    if (/\/(products|read|orders-sync)$/.test(url.pathname)) return Response.json({ ok: false, error: msg }, { status: 500 });
+    if (/\/(products|read|orders-sync|fulfil)$/.test(url.pathname)) return Response.json({ ok: false, error: msg }, { status: 500 });
     return page('Lazada did not connect', `Lazada answered: ${esc(msg)}. Open this link again to retry; the sign-in code only works once and only for a few minutes.`, 400);
   }
 });

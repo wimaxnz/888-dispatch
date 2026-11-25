@@ -5,7 +5,7 @@ import { Dispatcher } from '../src/engine.js';
 import { config } from '../src/config.js';
 import { buildCatalog } from '../src/catalog.js';
 import { snapshot, restore, prune } from '../src/store.js';
-import { fromLazada, skuMap, lazadaStage, lazTime, lazadaTracking } from '../src/lazada.js';
+import { fromLazada, skuMap, lazadaStage, lazTime, lazadaTracking, packReq, labelReq, rtsReq, packResult, rtsErrors } from '../src/lazada.js';
 import { shopView, adminView } from '../src/views.js';
 import { textsFor } from '../src/sms.js';
 
@@ -124,4 +124,40 @@ test('Lazada says shipped then delivered: the shop gets paid if on time', () => 
   d.deliver(o.id, o.paidAt + 3 * DAY);
   assert.equal(d.orders.get(o.id).payout.status, 'payable');
   assert.equal(d.orders.get(o.id).payout.amount, r.package.shopPayout);
+});
+
+test('shipping requests match the shape Lazada documents (Pack, PrintAWB, ReadyToShip)', () => {
+  assert.deepEqual(packReq(1128788225184343, [111, '222']), {
+    pack_order_list: [{ order_item_list: ['111', '222'], order_id: '1128788225184343' }], delivery_type: 'dropship', shipping_allocate_type: 'TFS' });
+  assert.deepEqual(labelReq(['FP1']), { doc_type: 'PDF', print_item_list: true, packages: [{ package_id: 'FP1' }] });
+  assert.deepEqual(rtsReq(['FP1', 'FP2']), { packages: [{ package_id: 'FP1' }, { package_id: 'FP2' }] });
+});
+
+test('pack answer gives the package, J&T tracking and any item errors', () => {
+  const ok = { code: '0', result: { success: 'true', data: { pack_order_list: [{ order_id: '1', order_item_list: [
+    { order_item_id: '11', msg: 'success', item_err_code: '0', tracking_number: 'JT123', shipment_provider: 'J&T Express', package_id: 'FP9' },
+    { order_item_id: '12', msg: 'success', item_err_code: '0', tracking_number: 'JT123', shipment_provider: 'J&T Express', package_id: 'FP9' }] }] } } };
+  assert.deepEqual(packResult(ok), { packageIds: ['FP9'], tracking: 'JT123', provider: 'J&T Express', errors: [] });
+  const bad = { code: '0', result: { success: 'true', data: { pack_order_list: [{ order_id: '1', order_item_list: [
+    { order_item_id: '11', msg: 'item current status not allow to pack', item_err_code: '700026', package_id: '' }] }] } } };
+  assert.deepEqual(packResult(bad).packageIds, []);
+  assert.deepEqual(packResult(bad).errors, ['item current status not allow to pack']);
+});
+
+test('ready-to-ship answer: errors only when Lazada reports them', () => {
+  assert.deepEqual(rtsErrors({ result: { success: 'true', data: { packages: [{ package_id: 'FP9', item_err_code: '0', msg: 'success' }] } } }), []);
+  assert.deepEqual(rtsErrors({ result: { success: 'true', data: { packages: [{ package_id: 'FP9', item_err_code: '600002', msg: 'package already cancelled' }] } } }), ['package already cancelled']);
+});
+
+test('a new Lazada order keeps its item ids (needed to pack it) and the shop sees the shipping steps', () => {
+  const items = [item({ order_item_id: 901, warehouse_code: 'WH-IBA' }), item({ order_item_id: 902, warehouse_code: 'WH-IBA' })];
+  const d = engine();
+  const r = fromLazada(ORDER, items, { catalog, bySku, shopForWarehouse: shopForWarehouse(d) });
+  assert.deepEqual(r.order.extra.lazada.itemIds, ['901', '902']);
+  d.packages.set(r.package.id, r.package);
+  const o = d.assignDirect({ ...r.order, address: { lat: 15.327, lng: 119.978, island: 'Luzon' } });
+  o.lazada = { ...o.lazada, packageIds: ['FP9'], tracking: 'JT123', packedAt: 1, labelAt: 2 };
+  const mine = shopView(d, 'iba', catalog, Date.now()).orders.find((x) => x.id === o.id);
+  assert.equal(mine.lazada.tracking, 'JT123');
+  assert.equal(mine.lazada.labelAt, 2);
 });

@@ -46,7 +46,7 @@ export function shopView(d, shopId, catalog, now) {
       recipient: ours ? o.recipient ?? null : null, note: ours ? o.note ?? '' : '',
       items: ours ? d.need(o).map((n) => ({ sku: n.sku, name: n.name, qty: n.qty })) : [],
       lines: o.lines ?? [], dropped: o.dropped.map((x) => x.name),
-      source: o.source ?? 'shopify', lazada: ours && o.lazada ? { orderId: o.lazada.orderId, provider: o.lazada.provider, packageIds: o.lazada.packageIds } : null,
+      source: o.source ?? 'shopify', lazada: ours && o.lazada ? { orderId: o.lazada.orderId, provider: o.lazada.provider, packageIds: o.lazada.packageIds, tracking: o.lazada.tracking ?? null, packedAt: o.lazada.packedAt ?? null, labelAt: o.lazada.labelAt ?? null, rtsAt: o.lazada.rtsAt ?? null } : null,
       missing: ours && myOffer.direct ? (myOffer.missing ?? []).map((m) => ({ name: m.name, qty: m.qty })) : [],
     };
   }).sort((a, b) => rank(a) - rank(b) || b.paidAt - a.paidAt);

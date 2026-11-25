@@ -92,6 +92,19 @@ async function call(method, body, query = '') {
   return data;
 }
 async function load() { try { V = await call('GET'); render(); } catch (e) { if (KEY) toast(e.message); } }
+// Lazada J&T label: open a tab first (before waiting, so the phone doesn't block it), then show the label in it.
+function labelTab() { const w = window.open('', '_blank'); if (w) w.document.write('<p style="font:16px sans-serif;padding:20px">Getting the J&amp;T label from Lazada…</p>'); return w; }
+function showLabel(w, label) {
+  if (!label) { if (w) w.close(); return; }
+  let url = label.url;
+  if (!url && label.file) {
+    const bin = atob(label.file), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pdf = bin.startsWith('%PDF');
+    url = URL.createObjectURL(new Blob([bytes], { type: pdf ? 'application/pdf' : 'text/html' }));
+  }
+  if (w) w.location.href = url; else location.href = url;
+}
 async function act(body, okMsg) {
   if (busy) return; busy = true;
   try { const r = await call('POST', body); V = r.view; if (r.result?.ok === false) toast(r.result.reason || 'That didn\'t work.'); else if (okMsg) toast(okMsg); render(); return r.result; }
@@ -158,9 +171,12 @@ function detail(o) {
       : o.buyerChoice?.status === 'refund' ? `Buyer chose a refund: refund ${peso(o.missingRefund)} in Shopify.`
       : o.buyerChoice?.status === 'later' ? `Buyer chose to get ${o.dropped.length > 1 ? 'them' : 'it'} later: follow-up order ${esc(o.buyerChoice.followUp)}.` : ''}</div>` : ''}
     ${o.followUpOf ? `<p class="note">This sends the missing items from order ${esc(o.followUpOf)}.</p>` : ''}
+    ${o.source === 'lazada' ? `<p class="note">Lazada order ${esc(o.lazada?.orderId || '')}${o.lazada?.tracking ? ` · J&amp;T ${esc(o.lazada.tracking)}` : ''}${o.lazada?.rtsAt ? ' · ready for pickup' : o.lazada?.labelAt ? ' · label printed' : o.lazada?.packedAt ? ' · packed' : ''}</p>` : ''}
     <div class="acts">
       ${['find', 'buy', 'pack'].includes(o.stage) ? `<button class="btn small danger" data-act="tohub" data-id="${esc(o.id)}">${confirmKey === 'hub' + o.id ? 'Tap again: send to hub' : 'Send to 888 hub'}</button>` : ''}
-      ${o.stage === 'hub' && o.status === 'assigned' ? `<button class="btn small primary" data-act="hubship" data-id="${esc(o.id)}">Hub: mark shipped</button>` : ''}
+      ${o.stage === 'hub' && o.status === 'assigned' && o.source !== 'lazada' ? `<button class="btn small primary" data-act="hubship" data-id="${esc(o.id)}">Hub: mark shipped</button>` : ''}
+      ${o.source === 'lazada' && o.status === 'assigned' ? `<button class="btn small ${o.lazada?.labelAt ? '' : 'primary'}" data-act="lzLabel" data-id="${esc(o.id)}">${o.lazada?.labelAt ? 'Print label again' : 'Print J&amp;T label'}</button>
+        <button class="btn small ${o.lazada?.labelAt ? 'primary' : ''}" data-act="lzRts" data-id="${esc(o.id)}" ${o.lazada?.packageIds?.length ? '' : 'disabled'}>${confirmKey === 'rts' + o.id ? 'Tap again: label is on the box' : 'Ready for J&amp;T pickup'}</button>` : ''}
       ${o.status === 'shipped' ? `<button class="btn small" data-act="deliver" data-id="${esc(o.id)}">Mark delivered</button>` : ''}
     </div>
     <h4>What happened</h4>
@@ -178,7 +194,7 @@ function say(e) {
     sourced: `${shopName(d.shop)} has all items`, cant_source: `${shopName(d.shop)} couldn't get the items`, sourcing_missed: `${shopName(d.shop)} didn't confirm items: strike`,
     item_dropped: `Removed ${d.item}; refund ${peso(d.refund)}`, customer_notified: 'Buyer to be asked: refund or send later', shipped: `Shipped · ${d.tracking}`,
     payout_payable: `Delivered · ${peso(d.amount)} owed to ${shopName(d.shop)}`, deadline_missed: `${shopName(d.shop)} missed the deadline: not paid, strike`,
-    to_hub: `To the 888 hub (${d.reason})`, hub_urgent: `To the 888 hub, urgent (${d.reason})`, hub_needs_stock: 'Hub stock not tracked yet' })[e.type] ?? e.type;
+    to_hub: `To the 888 hub (${d.reason})`, direct_assigned: `Lazada order to ${shopName(d.shop)}`, order_cancelled: `Cancelled (${d.reason || ''})`, lazada_packed: `Packed in Lazada${d.tracking ? ` · J&T ${d.tracking}` : ''}`, hub_urgent: `To the 888 hub, urgent (${d.reason})`, hub_needs_stock: 'Hub stock not tracked yet' })[e.type] ?? e.type;
 }
 
 function ordersView() {
@@ -302,6 +318,8 @@ document.addEventListener('click', async (ev) => {
   if (b.hasAttribute('data-copy')) { const t = document.getElementById('link').textContent; try { await navigator.clipboard.writeText(t); toast('Link copied'); } catch { getSelection().selectAllChildren(document.getElementById('link')); toast('Select and copy the link'); } return; }
   const a = b.dataset.act, id = b.dataset.id, shop = b.dataset.shop;
   if (a === 'tohub') { if (!twice('hub' + id)) return; await act({ act: 'tohub', orderId: id }, `${id} is now with the 888 hub`); delete events[id]; }
+  if (a === 'lzLabel') { const w = labelTab(); const r = await act({ act: 'lzLabel', orderId: id }, 'Label ready'); showLabel(w, r?.ok ? r.label : null); delete events[id]; }
+  if (a === 'lzRts') { if (!twice('rts' + id)) return; await act({ act: 'lzRts', orderId: id }, 'Ready to ship: J&T will pick it up'); delete events[id]; }
   if (a === 'hubship') await act({ act: 'hubship', orderId: id, tracking: 'HUB' }, 'Marked as shipped from the hub');
   if (a === 'deliver') await act({ act: 'deliver', orderId: id }, 'Marked as delivered');
   if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');

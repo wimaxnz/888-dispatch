@@ -44,6 +44,7 @@ export function fromLazada(order, items, { catalog, bySku, shopForWarehouse, pay
   const recipient = { name: '(on the Lazada label)', phone: '', address: '(on the Lazada label)', city: a.city ?? '', province: '', zip: a.post_code ?? '' };
   const lazada = {
     orderId: String(order.order_id), warehouse, payment: order.payment_method ?? '', packageIds: [...new Set(lines.map((i) => i.package_id).filter(Boolean))],
+    itemIds: lines.map((i) => String(i.order_item_id)).filter((x) => x && x !== 'undefined'),
     shippingType: lines[0]?.shipping_type ?? '', provider: lines[0]?.shipment_provider ?? '',
   };
   const manual = (reason) => ({
@@ -107,3 +108,33 @@ export function skuMap(products) {
 
 // Tracking number Lazada gave the parcel, if any.
 export const lazadaTracking = (items) => (items ?? []).map((i) => i.tracking_code).find(Boolean) ?? null;
+
+// ---- Shipping from 888 Dispatch (pack -> label -> ready to ship), Lazada's Fulfillment API ----
+// Request bodies exactly as Lazada documents them (open.lazada.com: Pack, PrintAWB, ReadyToShip).
+export const packReq = (orderId, itemIds) => ({
+  pack_order_list: [{ order_item_list: itemIds.map(String), order_id: String(orderId) }],
+  delivery_type: 'dropship', shipping_allocate_type: 'TFS',
+});
+export const labelReq = (packageIds) => ({ doc_type: 'PDF', print_item_list: true, packages: packageIds.map((package_id) => ({ package_id })) });
+export const rtsReq = (packageIds) => ({ packages: packageIds.map((package_id) => ({ package_id })) });
+
+// Pack answer -> { packageIds, tracking, provider, errors[] }.
+export function packResult(r) {
+  const rows = (r?.result?.data?.pack_order_list ?? []).flatMap((o) => o.order_item_list ?? []);
+  const ok = rows.filter((x) => String(x.item_err_code ?? '0') === '0' && x.package_id);
+  const errors = rows.filter((x) => String(x.item_err_code ?? '0') !== '0').map((x) => x.msg || x.item_err_code);
+  if (!rows.length && r?.result?.error_msg) errors.push(r.result.error_msg);
+  return {
+    packageIds: [...new Set(ok.map((x) => x.package_id))],
+    tracking: ok.map((x) => x.tracking_number).find(Boolean) ?? null,
+    provider: ok.map((x) => x.shipment_provider).find(Boolean) ?? null,
+    errors,
+  };
+}
+// Ready-to-ship answer -> errors[] (empty = all good).
+export function rtsErrors(r) {
+  const rows = r?.result?.data?.packages ?? [];
+  const errs = rows.filter((x) => String(x.item_err_code ?? '0') !== '0').map((x) => x.msg || x.item_err_code);
+  if (!rows.length && r?.result?.success !== true && r?.result?.success !== 'true' && r?.result?.error_msg) errs.push(r.result.error_msg);
+  return errs;
+}

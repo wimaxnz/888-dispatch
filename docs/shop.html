@@ -215,6 +215,19 @@ if (TOKEN) soundbar.hidden = false;
 async function load() {
   try { take(await call('GET')); } catch (e) { if (!V) document.getElementById('view').innerHTML = `<div class="empty"><b>Can't open your shop</b>${esc(e.message)}</div>`; }
 }
+// Lazada J&T label: open a tab first (before waiting, so the phone doesn't block it), then show the label in it.
+function labelTab() { const w = window.open('', '_blank'); if (w) w.document.write('<p style="font:16px sans-serif;padding:20px">Getting the J&amp;T label from Lazada…</p>'); return w; }
+function showLabel(w, label) {
+  if (!label) { if (w) w.close(); return; }
+  let url = label.url;
+  if (!url && label.file) {
+    const bin = atob(label.file), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const pdf = bin.startsWith('%PDF');
+    url = URL.createObjectURL(new Blob([bytes], { type: pdf ? 'application/pdf' : 'text/html' }));
+  }
+  if (w) w.location.href = url; else location.href = url;
+}
 async function act(body, okMsg) {
   if (busy) return; busy = true;
   try { const r = await call('POST', body); take(r.view); toast(r.result?.ok === false ? (r.result.reason || 'That didn\'t work. Try again.') : okMsg); return r.result; }
@@ -292,10 +305,13 @@ function orderCard(o) {
     body = `<div class="status bad"><b>Cancelled</b>The buyer cancelled this Lazada order. Don't ship it; put the items back on your shelf.</div>`;
   } else if (st === 'pack' && o.source === 'lazada') {
     body = `<h4>Lazada order: pack it</h4>
-      <div class="status info"><b>Lazada label</b>888 prints the Lazada shipping label and sends it to you. Stick it on the parcel. J&amp;T picks up from your shop; you don't book a courier. The tracking number appears here by itself.</div>
+      <div class="status info"><b>3 steps</b>1. Put the items below in the box. 2. Print the J&amp;T label and stick it on the box. 3. Tap "Ready for J&amp;T pickup": J&amp;T comes to your shop. You don't book a courier.</div>
       ${o.missing?.length ? `<div class="status bad"><b>Not on your stock list</b>${o.missing.map((m) => `${m.qty} × ${esc(m.name)}`).join(', ')}. Buy them in or tell 888 now.</div>` : ''}
       ${o.lines.some((l) => l.contents) ? `<p class="note">Bundles: ${o.lines.filter((l) => l.contents).map((l) => `<b>${esc(l.title)}</b> = ${l.contents.map(([q, n]) => `${q} × ${esc(n)}`).join(', ')}`).join('; ')}</p>` : ''}
-      <ul class="items">${o.items.map((i) => `<li><span class="mark">✓</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}</span></li>`).join('')}</ul>`;
+      <ul class="items">${o.items.map((i) => `<li><span class="mark">✓</span><span class="q num">${i.qty}×</span><span class="n">${esc(i.name)}</span></li>`).join('')}</ul>
+      ${o.lazada?.tracking ? `<p class="note">J&amp;T tracking <b class="num">${esc(o.lazada.tracking)}</b></p>` : ''}
+      <div class="actions"><button class="btn ${o.lazada?.labelAt ? '' : 'primary'} wide" data-act="lzLabel" data-id="${o.id}">${o.lazada?.labelAt ? 'Print the label again' : 'Print J&amp;T label'}</button>
+      <button class="btn ${o.lazada?.labelAt ? 'primary' : ''} wide" data-act="lzRts" data-id="${o.id}" ${o.lazada?.packageIds?.length ? '' : 'disabled'}>${u.confirmRts ? 'Tap again: label is on the box' : 'Ready for J&amp;T pickup'}</button></div>`;
   } else if (st === 'pack') {
     body = `<h4>Pack the order</h4><p class="note">You checked these on your shelf when you accepted. Put them in the bag.</p>
       ${o.dropped.length ? `<div class="status info"><b>Not in this delivery</b>${o.dropped.map(esc).join(', ')}. Don't pack ${o.dropped.length > 1 ? 'them' : 'it'}; 888 is sorting it out with the buyer.</div>` : ''}
@@ -307,6 +323,8 @@ function orderCard(o) {
       <label class="field">Courier<select data-courier="${o.id}">${['Lalamove', 'Grab Express', 'J&T Express', 'LBC', 'Own rider'].map((c) => `<option ${u.courier === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
       <label class="field">Tracking or booking number<input id="track-${esc(o.id)}" data-track="${o.id}" value="${esc(u.tracking ?? '')}" placeholder="e.g. LLM-58213" autocomplete="off"></label>
       <button class="btn primary" data-act="ship" data-id="${o.id}" ${u.tracking ? '' : 'disabled'}>Handed to courier</button>`;
+  } else if (o.stage === 'way' && o.source === 'lazada') {
+    body = `<div class="status info"><b>Waiting for J&amp;T</b>Tracking ${esc(o.tracking)}. Keep the box ready; J&amp;T picks it up from your shop. Lazada tells us when it's delivered.</div>`;
   } else if (o.stage === 'way') {
     body = `<div class="status info"><b>On the way</b>Tracking ${esc(o.tracking)}.</div>
       <button class="btn" data-act="delivered" data-id="${o.id}">${u.confirmDeliv ? 'Tap again: the family has it' : 'It was delivered'}</button>`;
@@ -391,6 +409,8 @@ document.addEventListener('click', async (ev) => {
   if (a === 'busy') await act({ act: 'decline', offerId: id, reason: 'busy' }, 'Declined. 888 will find another shop.');
   if (a === 'sourced') await act({ act: 'sourced', orderId: id }, 'Great. Now pack it.');
   if (a === 'cantsource') { if (!ui[id].confirmCant) { ui[id].confirmCant = true; render(); return; } await act({ act: 'cantsource', orderId: id }, 'Given to another shop. No strike.'); }
+  if (a === 'lzLabel') { const w = labelTab(); const r = await act({ act: 'lzLabel', orderId: id }, 'Label ready: print it and stick it on the box.'); showLabel(w, r?.ok ? r.label : null); }
+  if (a === 'lzRts') { if (!ui[id].confirmRts) { ui[id].confirmRts = true; render(); return; } await act({ act: 'lzRts', orderId: id }, 'Done. J&T will come to pick it up.'); }
   if (a === 'packed') { ui[id].packed = true; render(); toast('Packed. Now hand it to the courier.'); }
   if (a === 'ship') { const u = ui[id]; await act({ act: 'ship', orderId: id, tracking: u.tracking, courier: u.courier || 'Lalamove' }, 'Shipped. Thank you!'); }
   if (a === 'delivered') { if (!ui[id].confirmDeliv) { ui[id].confirmDeliv = true; render(); return; } await act({ act: 'delivered', orderId: id }, 'Marked as delivered.'); }

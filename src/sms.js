@@ -27,7 +27,7 @@ export function textsFor(events, d, { ownerPhone = null } = {}) {
       const by = new Date(order.deadline).toLocaleString('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', hour: 'numeric', minute: '2-digit' });
       out.push({ to, kind: e.type === 'direct_assigned' ? 'lazada' : 'cancel', ref: e.order,
         message: e.type === 'direct_assigned'
-          ? `888 LAZADA ORDER: ${cut(d.pkg(order).name, 40)}. Pack it and stick on the Lazada label by ${by}. J&T picks up from your shop. Details on your 888 shop page.`
+          ? `888 LAZADA ORDER: ${cut(d.pkg(order).name, 40)}. Pack it, print the J&T label on your 888 shop page and tap Ready for pickup by ${by}. J&T picks up from your shop.`
           : `888: Lazada order ${e.order} was CANCELLED. Don't ship it. Put the items back on your shelf.` });
       continue;
     }
