@@ -633,12 +633,16 @@ const SELF_MAX_QTY = 500;
 
 // What was really paid per batch: line price x qty MINUS any discount on that line (a sale code must never
 // buy full-value gift cards), and only for orders Shopify reports as fully paid.
+// Only the "Gift voucher credit" variants count: anyone can tag ANY cart line with the batch property, so a
+// tagged rice line would otherwise ship the rice AND pay for vouchers worth the same money.
+const CREDIT_VARIANT_IDS = new Set(Object.values(CREDIT_VARIANTS).map(String));
 function netVoucherPayments(o: any) {
   const by = new Map<string, number>();
-  if (o?.financial_status && o.financial_status !== 'paid') return by;
+  if (o?.financial_status !== 'paid') return by; // fail closed: missing status = not paid
   for (const li of o?.line_items ?? []) {
     const p = (li.properties ?? []).find((x: any) => x.name === BATCH_PROP);
     if (!p?.value) continue;
+    if (!CREDIT_VARIANT_IDS.has(String(li.variant_id))) continue;
     const allocs = li.discount_allocations ?? [];
     const disc = allocs.length ? allocs.reduce((t: number, d: any) => t + Number(d.amount ?? 0), 0) : Number(li.total_discount ?? 0);
     const net = Math.max(0, Number(li.price) * Number(li.quantity) - disc);
