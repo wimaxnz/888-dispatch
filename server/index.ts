@@ -118,6 +118,10 @@ async function onShopify(req: Request) {
   const ok = await verifyShopify(raw, req.headers.get('x-shopify-hmac-sha256'), await secret('shopify_webhook_secret'));
   if (!ok) return json({ error: 'bad signature' }, 401);
   const o = JSON.parse(raw);
+  // Refunds and cancellations (their own Shopify webhooks, same signing secret): switch off the gift cards
+  // that order paid for, so money given back can never also be spent as a gift card.
+  const topic = req.headers.get('x-shopify-topic') ?? '';
+  if (topic === 'refunds/create' || topic === 'orders/cancelled') return json({ ok: true, ...(await reverseVouchers(o, topic)) });
   const { error: dupe } = await db.from('shopify_orders').insert({ shopify_id: o.id, name: o.name, payload: o });
   if (dupe) return json({ ok: true, duplicate: true }); // Shopify retries: already have it
   try { await payVoucherBatches(o); } catch (e) { console.error('voucher payment', e); }
@@ -590,6 +594,8 @@ async function onVoucherAdmin(req: Request, url: URL) {
     }
     case 'markPaid': {
       const at = new Date().toISOString();
+      // Paid outside Shopify (bank transfer): always on the record.
+      await db.from('event_log').insert({ at, type: 'voucher_mark_paid', order_id: String(body.batchId ?? ''), data: { by: 'owner key' } });
       const { data } = await db.from('voucher_batches').update({ paid: true, paid_at: at }).eq('id', body.batchId).eq('paid', false).select('id');
       if (data?.length) await db.from('vouchers').update({ issued_at: at }).eq('batch_id', body.batchId).is('issued_at', null);
       return json({ ok: true, cards: await issueGiftCards(body.batchId) });
@@ -612,8 +618,11 @@ async function onVoucherAdmin(req: Request, url: URL) {
       return json({ ok: true });
     }
     case 'cancel': {
-      await db.from('vouchers').update({ status: 'cancelled' }).eq('code', body.code).eq('status', 'issued');
-      return json({ ok: true });
+      // Cancelling a voucher also switches off its Shopify gift card (before, the card stayed spendable).
+      const { data: v } = await db.from('vouchers').select('code, gift_card_id').eq('code', body.code).eq('status', 'issued').maybeSingle();
+      const off = v ? await deactivateCard(v.code, v.gift_card_id, 'cancelled by owner') : false;
+      await db.from('event_log').insert({ at: new Date().toISOString(), type: 'voucher_cancelled', order_id: String(body.code ?? ''), data: { cardOff: off } });
+      return json({ ok: true, cardOff: off });
     }
     case 'newLink': {
       const token = newToken();
@@ -654,14 +663,66 @@ function netVoucherPayments(o: any) {
 async function payVoucherBatches(o: any) {
   const paid = netVoucherPayments(o);
   for (const [batchId, amount] of paid) {
-    const { data: b } = await db.from('voucher_batches').select('id, paid, total_php, paid_php').eq('id', batchId).maybeSingle();
-    if (!b || b.paid) continue;
-    const sum = Number(b.paid_php ?? 0) + amount;
-    const full = sum + 0.5 >= Number(b.total_php);
-    const at = new Date().toISOString();
-    await db.from('voucher_batches').update({ paid_php: sum, shopify_order: String(o.name ?? o.id), ...(full ? { paid: true, paid_at: at } : {}) }).eq('id', batchId);
-    if (full) { await db.from('vouchers').update({ issued_at: at }).eq('batch_id', batchId).is('issued_at', null); await issueGiftCards(batchId); }
+    // Optimistic update: only applies if nobody changed the batch in between (two orders paying at once).
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: b } = await db.from('voucher_batches').select('id, paid, total_php, paid_php, reversed_at').eq('id', batchId).maybeSingle();
+      if (!b || b.paid || b.reversed_at) break;
+      const sum = Number(b.paid_php ?? 0) + amount;
+      const full = sum + 0.5 >= Number(b.total_php);
+      const at = new Date().toISOString();
+      let q = db.from('voucher_batches').update({ paid_php: sum, shopify_order: String(o.name ?? o.id), ...(full ? { paid: true, paid_at: at } : {}) }).eq('id', batchId).eq('paid', false);
+      q = b.paid_php == null ? q.is('paid_php', null) : q.eq('paid_php', b.paid_php);
+      const { data: done } = await q.select('id');
+      if (!done?.length) continue;
+      if (full) { await db.from('vouchers').update({ issued_at: at }).eq('batch_id', batchId).is('issued_at', null); await issueGiftCards(batchId); }
+      break;
+    }
   }
+}
+
+// ---------- Money given back: switch the gift cards off ----------
+const tagOf = (li: any) => (li?.properties ?? []).find((x: any) => x.name === BATCH_PROP)?.value;
+async function shopifyGql(query: string, variables: unknown) {
+  const token = await shopifyAdminToken();
+  if (!token) throw new Error('no Shopify access');
+  const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token }, body: JSON.stringify({ query, variables }) });
+  return await res.json();
+}
+async function deactivateCard(code: string, giftCardId: string | null, why: string) {
+  let err: string | null = null;
+  if (giftCardId?.startsWith('gid://')) {
+    try {
+      const j = await shopifyGql('mutation($id: ID!) { giftCardDeactivate(id: $id) { giftCard { id enabled } userErrors { message } } }', { id: giftCardId });
+      err = j?.data?.giftCardDeactivate?.userErrors?.map((e: any) => e.message).join('; ') || j?.errors?.[0]?.message || null;
+    } catch (e) { err = String(e); }
+  }
+  // Even if Shopify refused, the voucher is cancelled on our side and the error is kept for the owner.
+  await db.from('vouchers').update({ status: 'cancelled', gift_card_error: err ? `NOT deactivated (${why}): ${err}`.slice(0, 300) : `deactivated: ${why}` }).eq('code', code);
+  return !err;
+}
+async function reverseVouchers(o: any, topic: string) {
+  const orderId = String(topic === 'refunds/create' ? o.order_id : o.id);
+  const ids = new Set<string>();
+  const refundLines = topic === 'refunds/create' ? (o.refund_line_items ?? []) : [];
+  if (refundLines.length) {
+    // Only the voucher lines that were refunded (refunding the rice in the same order leaves the cards alone).
+    for (const r of refundLines) if (tagOf(r.line_item) && CREDIT_VARIANT_IDS.has(String(r.line_item?.variant_id))) ids.add(String(tagOf(r.line_item)));
+  } else {
+    // A cancel, or a refund of an amount with no lines: every voucher batch this order paid for (fail closed).
+    const { data: row } = await db.from('shopify_orders').select('payload').eq('shopify_id', orderId).maybeSingle();
+    for (const li of row?.payload?.line_items ?? o.line_items ?? []) if (tagOf(li) && CREDIT_VARIANT_IDS.has(String(li.variant_id))) ids.add(String(tagOf(li)));
+  }
+  const why = topic === 'refunds/create' ? 'order refunded' : 'order cancelled';
+  const out: any[] = [];
+  for (const batchId of ids) {
+    await db.from('voucher_batches').update({ reversed_at: new Date().toISOString(), reversed_reason: `${why} (Shopify order ${orderId})` }).eq('id', batchId).is('reversed_at', null);
+    const { data: vs } = await db.from('vouchers').select('code, gift_card_id').eq('batch_id', batchId).neq('status', 'cancelled');
+    let off = 0, failed = 0;
+    for (const v of vs ?? []) (await deactivateCard(v.code, v.gift_card_id, why)) ? off++ : failed++;
+    out.push({ batchId, off, failed });
+  }
+  if (out.length) await db.from('event_log').insert({ at: new Date().toISOString(), type: 'voucher_reversed', order_id: orderId, data: { topic, batches: out } });
+  return { vouchersReversed: out };
 }
 
 // Each paid voucher becomes a real Shopify gift card (code = voucher code without dashes).
@@ -696,11 +757,15 @@ function strongGiftCode(voucherCode: string) {
 async function issueGiftCards(batchId: string) {
   const token = await shopifyAdminToken();
   if (!token) return { issued: 0, reason: 'no Shopify access yet' };
-  const { data: b } = await db.from('voucher_batches').select('id, company, budget_php, paid').eq('id', batchId).maybeSingle();
+  const { data: b } = await db.from('voucher_batches').select('id, company, budget_php, paid, reversed_at').eq('id', batchId).maybeSingle();
   if (!b?.paid) return { issued: 0, reason: 'not paid' };
+  if (b.reversed_at) return { issued: 0, reason: 'refunded or cancelled' };
   const { data: vs } = await db.from('vouchers').select('code').eq('batch_id', batchId).is('gift_card_id', null).neq('status', 'cancelled');
   let issued = 0;
   for (const v of vs ?? []) {
+    // Claim the voucher first, so two runs at the same moment can never make two gift cards for it.
+    const { data: claim } = await db.from('vouchers').update({ gift_card_id: 'claim:' + newToken().slice(0, 12) }).eq('code', v.code).is('gift_card_id', null).neq('status', 'cancelled').select('code');
+    if (!claim?.length) continue;
     const code = strongGiftCode(v.code);
     try {
       const res = await fetch(`${STORE}/admin/api/2026-10/graphql.json`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shopify-access-token': token },
@@ -710,8 +775,8 @@ async function issueGiftCards(batchId: string) {
       const id = j?.data?.giftCardCreate?.giftCard?.id;
       const err = j?.data?.giftCardCreate?.userErrors?.map((e: any) => e.message).join('; ') || j?.errors?.[0]?.message || (res.ok ? '' : `HTTP ${res.status}`);
       if (id) { await db.from('vouchers').update({ gift_card_id: id, gift_card_code: code, gift_card_error: null }).eq('code', v.code); issued++; }
-      else await db.from('vouchers').update({ gift_card_error: String(err).slice(0, 300) }).eq('code', v.code);
-    } catch (e) { await db.from('vouchers').update({ gift_card_error: String(e).slice(0, 300) }).eq('code', v.code); }
+      else await db.from('vouchers').update({ gift_card_id: null, gift_card_error: String(err).slice(0, 300) }).eq('code', v.code);
+    } catch (e) { await db.from('vouchers').update({ gift_card_id: null, gift_card_error: String(e).slice(0, 300) }).eq('code', v.code); }
   }
   return { issued };
 }
