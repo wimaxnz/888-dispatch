@@ -914,7 +914,7 @@ async function singleItems() {
     for (const v of p.variants ?? []) {
       out.push({
         variantId: String(v.id), sku: v.sku ?? '', group: p.product_type || 'Other',
-        title: p.title + (p.variants.length > 1 && v.title !== 'Default Title' ? ` – ${v.title}` : ''),
+        title: p.title + (p.variants.length > 1 && v.title && v.title !== 'Default Title' ? ` – ${v.title}` : ''),
         image: (p.images?.find((i: any) => (i.variant_ids ?? []).includes(v.id)) ?? p.images?.[0])?.src ?? null,
         sellPrice: Number(v.price) || null,
       });
