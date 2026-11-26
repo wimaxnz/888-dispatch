@@ -31,7 +31,10 @@ li.bad .pin { border-color: var(--bad); background: var(--bad-soft) }
 .savebar { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 10px; align-items: center; margin-top: 16px }
 .savebar .msg { flex: 1; font-size: 14px; color: var(--muted) }
 .savebar .btn { min-width: 150px }
-.msg.ok { color: var(--ok) } .msg.bad { color: var(--bad) }
+.msg .ok, .msg.ok { color: var(--ok) } .msg .bad, .msg.bad { color: var(--bad) }
+.msg span { display: block }
+.count { background: var(--gold-soft); color: var(--ink); border-radius: 10px; padding: 10px 12px; font-size: 15px }
+.count.small { background: none; padding: 0; font-size: 13.5px; color: var(--ink) }
 @media (max-width: 420px) { .list li { grid-template-columns: 40px minmax(0, 1fr) 108px; gap: 8px } .list img, .list .ph { width: 40px; height: 40px } }
 </style>
 </head>
@@ -57,19 +60,34 @@ async function api(method, body) {
 }
 const parse = (s) => { s = String(s).replace(/[₱,\s]/g, ''); if (s === '') return null; const n = Number(s); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : NaN; };
 
+// How many items this supplier supplies, counting boxes changed but not saved yet.
+function supplied() {
+  let n = 0;
+  for (const i of data.items) {
+    const v = i.variantId;
+    const p = edits.has(v) ? parse(edits.get(v)) : (data.prices[v]?.price ?? null);
+    if (p != null && !Number.isNaN(p)) n++;
+  }
+  return n;
+}
+function countText() {
+  const n = supplied(), t = data.items.length;
+  const tag = n === 0 ? 'not started' : n >= t ? 'full list' : 'part of the list';
+  return `You supply <b>${n}</b> of ${t} items · ${tag}`;
+}
+function updateCounts() { for (const id of ['countTop', 'countBottom']) { const el = document.getElementById(id); if (el) el.innerHTML = countText(); } }
 function render() {
   const q = filter.toLowerCase();
   const shown = data.items.filter((i) => (!q || i.title.toLowerCase().includes(q)) && (!onlyMine || data.prices[i.variantId] || edits.has(i.variantId)));
   const groups = [...new Set(shown.map((i) => i.group))];
-  const priced = Object.keys(data.prices).length;
   app.innerHTML = `
     <div class="card"><h2>Hello, ${esc(data.supplier.name)}</h2>
-      <p class="note">Please enter the price you charge 888 Grocery for each item, in pesos. Leave an item blank if you don't sell it. You can come back to this link at any time to update your prices.</p>
-      <p class="note"><b>${priced}</b> of ${data.items.length} items priced${data.supplier.location ? ` · ${esc(data.supplier.location)}` : ''}</p></div>
+      <p class="note">Please type the price you charge 888 Grocery for each item, in pesos. <b>Leave an item blank if you don't supply it.</b> You can come back to this link any time to update your prices.</p>
+      <div class="count" id="countTop">${countText()}</div></div>
     <div class="tools" style="margin-top:14px"><input type="search" id="q" placeholder="Search items" value="${esc(filter)}" aria-label="Search items">
       <label><input type="checkbox" id="mine" ${onlyMine ? 'checked' : ''}> Only my priced items</label></div>
     ${groups.length ? groups.map((g) => `<section class="group"><h3>${esc(g)}</h3><ul class="list">${shown.filter((i) => i.group === g).map(row).join('')}</ul></section>`).join('') : '<div class="empty" style="margin-top:14px">No items match.</div>'}
-    <div class="savebar"><div class="msg" id="msg">${edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved'}</div>
+    <div class="savebar"><div class="msg"><span class="count small" id="countBottom">${countText()}</span><span id="msg">${edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved'}</span></div>
       <button class="btn primary" id="save" ${edits.size ? '' : 'disabled'}>Save prices</button></div>`;
 }
 function row(i) {
@@ -79,7 +97,7 @@ function row(i) {
   return `<li class="${bad ? 'bad' : changed ? 'changed' : ''}" data-v="${esc(i.variantId)}">
     ${i.image ? `<img src="${esc(thumb(i.image))}" alt="" loading="lazy">` : '<div class="ph"></div>'}
     <div class="t">${esc(i.title)}${cur && !changed ? `<small>Updated ${day(cur.at)}</small>` : ''}</div>
-    <div class="pin"><span>₱</span><input inputmode="decimal" autocomplete="off" value="${esc(val)}" aria-label="Your price for ${esc(i.title)}" placeholder="—"></div></li>`;
+    <div class="pin"><span>₱</span><input inputmode="decimal" autocomplete="off" value="${esc(val)}" aria-label="Your price for ${esc(i.title)}" placeholder=""></div></li>`;
 }
 
 app.addEventListener('input', (e) => {
@@ -88,7 +106,8 @@ app.addEventListener('input', (e) => {
   const v = li.dataset.v, cur = data.prices[v]?.price ?? null, p = parse(e.target.value);
   if (p === cur) edits.delete(v); else edits.set(v, e.target.value);
   li.className = edits.has(v) ? (Number.isNaN(p) ? 'bad' : 'changed') : '';
-  const m = document.getElementById('msg'); m.className = 'msg'; m.textContent = edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved';
+  updateCounts();
+  const m = document.getElementById('msg'); m.className = ''; m.textContent = edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved';
   document.getElementById('save').disabled = !edits.size;
 });
 app.addEventListener('change', (e) => { if (e.target.id === 'mine') { onlyMine = e.target.checked; render(); } });
@@ -96,13 +115,13 @@ app.addEventListener('click', async (e) => {
   if (e.target.id !== 'save') return;
   const m = document.getElementById('msg');
   const list = [...edits].map(([variantId, price]) => ({ variantId, price: parse(price) }));
-  if (list.some((x) => Number.isNaN(x.price))) { m.className = 'msg bad'; m.textContent = 'Some prices are not numbers. Fix the boxes in red.'; return; }
-  e.target.disabled = true; m.className = 'msg'; m.textContent = 'Saving…';
+  if (list.some((x) => Number.isNaN(x.price))) { m.className = 'bad'; m.textContent = 'Some prices are not numbers. Fix the boxes in red.'; return; }
+  e.target.disabled = true; m.className = ''; m.textContent = 'Saving…';
   try {
     await api('POST', { prices: list });
     edits.clear(); data = await api('GET'); render();
-    const m2 = document.getElementById('msg'); m2.className = 'msg ok'; m2.textContent = 'Saved. Thank you!';
-  } catch (err) { m.className = 'msg bad'; m.textContent = err.message; e.target.disabled = false; }
+    const m2 = document.getElementById('msg'); m2.className = 'ok'; m2.textContent = 'Saved. Thank you!';
+  } catch (err) { m.className = 'bad'; m.textContent = err.message; e.target.disabled = false; }
 });
 window.addEventListener('beforeunload', (e) => { if (edits.size) { e.preventDefault(); e.returnValue = ''; } });
 

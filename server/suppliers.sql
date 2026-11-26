@@ -37,3 +37,4 @@ alter table public.supplier_prices enable row level security;
 alter table public.supplier_price_log enable row level security;
 alter table public.preferred_supplier enable row level security;
 revoke all on public.suppliers, public.supplier_prices, public.supplier_price_log, public.preferred_supplier from anon, authenticated;
+alter table public.suppliers add column if not exists link_token text; -- kept so the link can be copied again (owner + helper page)

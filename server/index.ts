@@ -9,6 +9,7 @@
 //   GET/POST /api/vadmin       owner: company voucher batches (x-admin-key)
 //   GET/POST /api/supplier     supplier price list (secret link token)
 //   GET/POST /api/sadmin       owner: compare supplier prices per item (x-admin-key)
+//   GET/POST /api/sinvite      staff helper: name supplier slots, copy invite links (secret link)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { Dispatcher } from './engine.js';
 import { config as DEFAULT_CONFIG } from './config.js';
@@ -974,13 +975,13 @@ async function onSupplierAdmin(req: Request, url: URL) {
       const name = clean(b.name);
       if (!name) return json({ error: 'Enter the supplier name.' }, 400);
       const token = newToken();
-      const { data, error } = await db.from('suppliers').insert({ name, location: clean(b.location), contact: clean(b.contact, 120), token_hash: await sha256(token) }).select('id').single();
+      const { data, error } = await db.from('suppliers').insert({ name, location: clean(b.location), contact: clean(b.contact, 120), token_hash: await sha256(token), link_token: token }).select('id').single();
       if (error) throw error;
       return json({ ok: true, id: data.id, token });
     }
     if (b.act === 'newLink') {
       const token = newToken();
-      const { error } = await db.from('suppliers').update({ token_hash: await sha256(token) }).eq('id', String(b.id));
+      const { error } = await db.from('suppliers').update({ token_hash: await sha256(token), link_token: token }).eq('id', String(b.id));
       if (error) throw error;
       return json({ ok: true, token });
     }
@@ -1004,7 +1005,7 @@ async function onSupplierAdmin(req: Request, url: URL) {
   }
   const [items, sup, pr, pref] = await Promise.all([
     singleItems(),
-    db.from('suppliers').select('id, name, location, contact, active, created_at, last_seen_at').order('created_at'),
+    db.from('suppliers').select('id, name, location, contact, active, created_at, last_seen_at, link_token').order('created_at'),
     db.from('supplier_prices').select('supplier_id, variant_id, price_php, updated_at'),
     db.from('preferred_supplier').select('variant_id, supplier_id'),
   ]);
@@ -1013,6 +1014,37 @@ async function onSupplierAdmin(req: Request, url: URL) {
     prices: (pr.data ?? []).map((r: any) => ({ s: r.supplier_id, v: r.variant_id, p: Number(r.price_php), at: r.updated_at })),
     preferred: Object.fromEntries((pref.data ?? []).map((r: any) => [r.variant_id, r.supplier_id])),
   });
+}
+
+// Helper page for staff (Janet): name each supplier slot and copy its invite link. Its own secret link
+// (?k=…, hash in app_secrets.supplier_helper_hash). It can rename and add suppliers, nothing else:
+// no prices, no switching off, no admin.
+async function onSupplierHelper(req: Request, url: URL) {
+  const body = req.method === 'POST' ? await req.json() : {};
+  const k = String(body.k ?? url.searchParams.get('k') ?? '');
+  if (!/^[0-9a-f]{40}$/.test(k) || !same(await sha256(k), await secret('supplier_helper_hash'))) return json({ error: 'This link is not valid. Ask 888 for a new one.' }, 403);
+  const clean = (x: unknown, n = 80) => (typeof x === 'string' ? x.trim().slice(0, n) : '') || null;
+  if (req.method === 'POST') {
+    if (body.act === 'rename') {
+      const name = clean(body.name);
+      if (!name) return json({ error: 'Type the shop name first.' }, 400);
+      const { data } = await db.from('suppliers').update({ name, location: clean(body.location), contact: clean(body.contact, 120) }).eq('id', String(body.id)).eq('active', true).select('id');
+      if (!data?.length) return json({ error: 'This supplier is switched off.' }, 400);
+    } else if (body.act === 'add') {
+      const { count } = await db.from('suppliers').select('id', { count: 'exact', head: true });
+      if ((count ?? 0) >= 100) return json({ error: 'Too many suppliers. Ask 888.' }, 400);
+      const token = newToken();
+      await db.from('suppliers').insert({ name: `Supplier ${(count ?? 0) + 1}`, token_hash: await sha256(token), link_token: token });
+    } else return json({ error: 'Unknown action' }, 400);
+  }
+  const [items, sup, pr] = await Promise.all([
+    singleItems(),
+    db.from('suppliers').select('id, name, location, contact, last_seen_at, link_token').eq('active', true).order('created_at'),
+    db.from('supplier_prices').select('supplier_id'),
+  ]);
+  const n = new Map<string, number>();
+  for (const r of pr.data ?? []) n.set(r.supplier_id, (n.get(r.supplier_id) ?? 0) + 1);
+  return json({ total: items.length, suppliers: (sup.data ?? []).map((s: any) => ({ ...s, priced: n.get(s.id) ?? 0 })) });
 }
 
 // ---------- Product list copy ----------
@@ -1054,6 +1086,7 @@ Deno.serve(async (req) => {
     if (path === '/vmanage') return await onVoucherManage(req, url);
     if (path === '/supplier') return await onSupplier(req, url);
     if (path === '/sadmin') return await onSupplierAdmin(req, url);
+    if (path === '/sinvite') return await onSupplierHelper(req, url);
     if (path === '/health') return json({ ok: true, at: new Date().toISOString() });
     return json({ error: 'Not found' }, 404);
   } catch (e) {

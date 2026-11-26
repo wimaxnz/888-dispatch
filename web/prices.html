@@ -141,7 +141,7 @@ function compareView(active) {
       <button class="btn small" id="cheapAll">Prefer cheapest for all</button></div>
     <div class="legend"><span><i style="background:var(--ok-soft);color:var(--ok);font-weight:700">₱</i> cheapest</span><span><i style="outline:2px solid var(--gold)">★</i> your preferred supplier (click a price to choose)</span><span>Cost = preferred, or cheapest if none chosen</span></div>
     <div class="scroll"><table><thead><tr><th class="item">Item</th>
-      ${active.map((s) => `<th>${esc(s.name)}<small>${esc(s.location || '')}</small></th>`).join('')}
+      ${active.map((s) => { const n = data.prices.filter((r) => r.s === s.id).length; return `<th>${esc(s.name)}<small>${esc(s.location || '')}</small><small>${n}/${data.items.length} items</small></th>`; }).join('')}
       <th>Our price</th><th>Cost</th><th>Margin</th></tr></thead><tbody>${body || `<tr><td class="item" colspan="${active.length + 4}">No items match.</td></tr>`}</tbody></table></div>`;
 }
 
@@ -155,10 +155,10 @@ function suppliersView() {
       <p class="note">Each supplier gets their own private link. They see only the item list and their own prices, never your selling prices or other suppliers.</p></div>
     <div class="sup">${data.suppliers.map((s) => `<div class="srow ${s.active ? '' : 'off'}">
       <div><b>${esc(s.name)}</b><small>${esc([s.location, s.contact].filter(Boolean).join(' · '))}</small></div>
-      <div><small>${counts.get(s.id) || 0} items priced</small><small>Last opened: ${ago(s.last_seen_at)}</small></div>
-      <div class="acts"><button class="btn small" data-act="newLink" data-id="${s.id}">New link</button>
+      <div><small><b>${counts.get(s.id) || 0} of ${data.items.length}</b> items · ${!(counts.get(s.id)) ? 'not started' : counts.get(s.id) >= data.items.length ? '<b style="color:var(--ok)">full list</b>' : 'partial list'}</small><small>Last opened: ${ago(s.last_seen_at)}</small></div>
+      <div class="acts">${s.link_token && s.active ? `<button class="btn small" data-act="copyLink" data-id="${s.id}">Copy link</button>` : ''}<button class="btn small" data-act="newLink" data-id="${s.id}">New link</button>
         <button class="btn small ${s.active ? 'danger' : ''}" data-act="toggle" data-id="${s.id}">${s.active ? 'Switch off' : 'Switch on'}</button></div>
-      ${fresh[s.id] ? `<div class="newlink"><b>Send this link to ${esc(s.name)}:</b><br>${esc(linkFor(fresh[s.id]))}<br><button class="btn small" data-act="copy" data-id="${s.id}" style="margin-top:6px">Copy link</button> <small>Shown once. Any older link for this supplier no longer works.</small></div>` : ''}
+      ${fresh[s.id] ? `<div class="newlink"><b>Send this link to ${esc(s.name)}:</b><br>${esc(linkFor(fresh[s.id]))}<br><small>Any older link for this supplier no longer works.</small></div>` : ''}
     </div>`).join('') || '<div class="empty">No suppliers yet.</div>'}</div>`;
 }
 
@@ -197,7 +197,7 @@ app.addEventListener('click', async (e) => {
   }
   const b = e.target.closest('[data-act]'); if (!b) return;
   const s = data.suppliers.find((x) => x.id === b.dataset.id);
-  if (b.dataset.act === 'copy') { try { await navigator.clipboard.writeText(linkFor(fresh[s.id])); b.textContent = 'Copied'; } catch { prompt('Copy this link:', linkFor(fresh[s.id])); } return; }
+  if (b.dataset.act === 'copyLink') { const l = linkFor(fresh[s.id] || s.link_token); try { await navigator.clipboard.writeText(l); b.textContent = 'Copied'; } catch { prompt('Copy this link:', l); } return; }
   if (b.dataset.act === 'newLink') {
     if (!confirm(`Make a new link for ${s.name}? Their old link will stop working.`)) return;
     try { const r = await api('POST', { act: 'newLink', id: s.id }); fresh[s.id] = r.token; render(); } catch (err) { alert(err.message); }
