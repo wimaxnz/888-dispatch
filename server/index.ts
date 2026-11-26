@@ -7,6 +7,8 @@
 //   GET/POST /api/admin        owner screen (x-admin-key)
 //   GET/POST /api/voucher      company gift voucher welcome page (secret link)
 //   GET/POST /api/vadmin       owner: company voucher batches (x-admin-key)
+//   GET/POST /api/supplier     supplier price list (secret link token)
+//   GET/POST /api/sadmin       owner: compare supplier prices per item (x-admin-key)
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
 import { Dispatcher } from './engine.js';
 import { config as DEFAULT_CONFIG } from './config.js';
@@ -899,6 +901,120 @@ async function onVoucherManage(req: Request, url: URL) {
   });
 }
 
+// ---------- Supplier price lists ----------
+// Suppliers open a private link (?t=token) and enter what they charge 888 for each single item.
+// Packages are built from items, so only single items are listed. Suppliers never see our selling
+// prices or each other's prices. The owner (x-admin-key) compares every supplier per item.
+const NOT_SINGLE = new Set(['Essentials Bundle', 'Gift Pack', 'Gift Voucher']);
+async function singleItems() {
+  const { data } = await db.from('shop_catalog_cache').select('products').eq('id', 1).maybeSingle();
+  const out: any[] = [];
+  for (const p of data?.products ?? []) {
+    if (NOT_SINGLE.has(p.product_type) || (p.tags ?? []).some((t: string) => /^package$/i.test(t))) continue;
+    for (const v of p.variants ?? []) {
+      out.push({
+        variantId: String(v.id), sku: v.sku ?? '', group: p.product_type || 'Other',
+        title: p.title + (p.variants.length > 1 && v.title !== 'Default Title' ? ` – ${v.title}` : ''),
+        image: (p.images?.find((i: any) => (i.variant_ids ?? []).includes(v.id)) ?? p.images?.[0])?.src ?? null,
+        sellPrice: Number(v.price) || null,
+      });
+    }
+  }
+  return out.sort((a, b) => a.group.localeCompare(b.group) || a.title.localeCompare(b.title));
+}
+const priceOf = (x: unknown) => {
+  if (x === null || x === undefined || x === '') return null;
+  const n = Math.round(Number(String(x).replace(/[₱,\s]/g, '')) * 100) / 100;
+  return Number.isFinite(n) && n > 0 && n < 1_000_000 ? n : NaN;
+};
+
+async function onSupplier(req: Request, url: URL) {
+  const body = req.method === 'POST' ? await req.json() : {};
+  const token = String(body.t ?? url.searchParams.get('t') ?? '');
+  if (!/^[0-9a-f]{40}$/.test(token)) return json({ error: 'This link is not valid. Ask 888 for a new one.' }, 403);
+  const { data: s } = await db.from('suppliers').select('id, name, location, active').eq('token_hash', await sha256(token)).maybeSingle();
+  if (!s || !s.active) return json({ error: 'This link is not valid. Ask 888 for a new one.' }, 403);
+  const items = await singleItems();
+  if (req.method === 'POST') {
+    const known = new Set(items.map((i) => i.variantId));
+    const changes = (Array.isArray(body.prices) ? body.prices : []).slice(0, 1000);
+    const bad = changes.filter((c: any) => !known.has(String(c.variantId)) || Number.isNaN(priceOf(c.price)));
+    if (bad.length) return json({ error: 'Some prices are not valid numbers. Please check them.', bad: bad.map((c: any) => String(c.variantId)) }, 400);
+    const { data: before } = await db.from('supplier_prices').select('variant_id, price_php').eq('supplier_id', s.id);
+    const old = new Map((before ?? []).map((r: any) => [r.variant_id, Number(r.price_php)]));
+    const log: any[] = [], up: any[] = [], del: string[] = [];
+    const at = new Date().toISOString();
+    for (const c of changes) {
+      const v = String(c.variantId), p = priceOf(c.price) as number | null, o = old.get(v) ?? null;
+      if (p === o) continue;
+      if (p === null) del.push(v); else up.push({ supplier_id: s.id, variant_id: v, price_php: p, updated_at: at });
+      log.push({ supplier_id: s.id, variant_id: v, old_php: o, new_php: p });
+    }
+    if (up.length) { const { error } = await db.from('supplier_prices').upsert(up); if (error) throw error; }
+    if (del.length) await db.from('supplier_prices').delete().eq('supplier_id', s.id).in('variant_id', del);
+    if (log.length) await db.from('supplier_price_log').insert(log);
+    await db.from('suppliers').update({ last_seen_at: at }).eq('id', s.id);
+    return json({ ok: true, saved: log.length });
+  }
+  await db.from('suppliers').update({ last_seen_at: new Date().toISOString() }).eq('id', s.id);
+  const { data: mine } = await db.from('supplier_prices').select('variant_id, price_php, updated_at').eq('supplier_id', s.id);
+  return json({
+    supplier: { name: s.name, location: s.location },
+    items: items.map(({ sellPrice, ...i }) => i), // never show our selling price to a supplier
+    prices: Object.fromEntries((mine ?? []).map((r: any) => [r.variant_id, { price: Number(r.price_php), at: r.updated_at }])),
+  });
+}
+
+async function onSupplierAdmin(req: Request, url: URL) {
+  if (!same(req.headers.get('x-admin-key'), await secret('admin_key'))) return json({ error: 'Wrong admin key' }, 403);
+  if (req.method === 'POST') {
+    const b = await req.json();
+    const clean = (x: unknown, n = 80) => (typeof x === 'string' ? x.trim().slice(0, n) : '') || null;
+    if (b.act === 'addSupplier') {
+      const name = clean(b.name);
+      if (!name) return json({ error: 'Enter the supplier name.' }, 400);
+      const token = newToken();
+      const { data, error } = await db.from('suppliers').insert({ name, location: clean(b.location), contact: clean(b.contact, 120), token_hash: await sha256(token) }).select('id').single();
+      if (error) throw error;
+      return json({ ok: true, id: data.id, token });
+    }
+    if (b.act === 'newLink') {
+      const token = newToken();
+      const { error } = await db.from('suppliers').update({ token_hash: await sha256(token) }).eq('id', String(b.id));
+      if (error) throw error;
+      return json({ ok: true, token });
+    }
+    if (b.act === 'editSupplier') {
+      const name = clean(b.name);
+      if (!name) return json({ error: 'Enter the supplier name.' }, 400);
+      await db.from('suppliers').update({ name, location: clean(b.location), contact: clean(b.contact, 120), active: b.active !== false }).eq('id', String(b.id));
+      return json({ ok: true });
+    }
+    if (b.act === 'prefer') {
+      const v = String(b.variantId ?? '');
+      if (!b.supplierId) await db.from('preferred_supplier').delete().eq('variant_id', v);
+      else await db.from('preferred_supplier').upsert({ variant_id: v, supplier_id: String(b.supplierId), chosen_at: new Date().toISOString() });
+      return json({ ok: true });
+    }
+    return json({ error: 'Unknown action' }, 400);
+  }
+  if (url.searchParams.get('log')) {
+    const { data } = await db.from('supplier_price_log').select('supplier_id, variant_id, old_php, new_php, at').order('id', { ascending: false }).limit(200);
+    return json({ log: data ?? [] });
+  }
+  const [items, sup, pr, pref] = await Promise.all([
+    singleItems(),
+    db.from('suppliers').select('id, name, location, contact, active, created_at, last_seen_at').order('created_at'),
+    db.from('supplier_prices').select('supplier_id, variant_id, price_php, updated_at'),
+    db.from('preferred_supplier').select('variant_id, supplier_id'),
+  ]);
+  return json({
+    items, suppliers: sup.data ?? [],
+    prices: (pr.data ?? []).map((r: any) => ({ s: r.supplier_id, v: r.variant_id, p: Number(r.price_php), at: r.updated_at })),
+    preferred: Object.fromEntries((pref.data ?? []).map((r: any) => [r.variant_id, r.supplier_id])),
+  });
+}
+
 // ---------- Product list copy ----------
 // Shopify answers 429 to products.json from Supabase's network (both addresses, since 24-25 Nov), so the
 // copy in shop_catalog_cache is refreshed through the Storefront API instead (Admin API as a fallback).
@@ -936,6 +1052,8 @@ Deno.serve(async (req) => {
     if (path === '/vadmin') return await onVoucherAdmin(req, url);
     if (path === '/vbuy') return await onVoucherBuy(req);
     if (path === '/vmanage') return await onVoucherManage(req, url);
+    if (path === '/supplier') return await onSupplier(req, url);
+    if (path === '/sadmin') return await onSupplierAdmin(req, url);
     if (path === '/health') return json({ ok: true, at: new Date().toISOString() });
     return json({ error: 'Not found' }, 404);
   } catch (e) {

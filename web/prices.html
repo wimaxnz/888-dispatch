@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>888 Supplier Compare</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+.wrap { max-width: 1240px }
+.role { font: 700 13px var(--f-head); letter-spacing: .08em; text-transform: uppercase; color: #dcae5e }
+.tabs { display: flex; gap: 6px; margin: 14px 0 }
+.tabs button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 14px; font-weight: 600; cursor: pointer }
+.tabs button[aria-selected="true"] { background: var(--brand); color: var(--brand-ink); border-color: var(--brand) }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; min-width: 0 }
+.tile small { display: block; font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted) }
+.tile b { display: block; font: 800 22px/1.15 var(--f-head); margin-top: 4px; font-variant-numeric: tabular-nums }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px }
+.tools input[type=search], .tools select { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--surface); font-size: 14.5px; min-width: 0 }
+.tools input[type=search] { flex: 1 1 220px }
+.tools label { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted) }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px }
+table { border-collapse: collapse; width: 100%; font-size: 14px }
+th, td { padding: 8px 10px; border-top: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums }
+thead th { border-top: 0; font: 700 12.5px var(--f-head); color: var(--muted); position: sticky; top: 0; background: var(--surface); vertical-align: bottom }
+thead th small { display: block; font: 500 11.5px Inter, sans-serif }
+th.item, td.item { text-align: left; white-space: normal; min-width: 220px; position: sticky; left: 0; background: var(--surface); z-index: 1 }
+td.item small { display: block; color: var(--muted); font-size: 12px }
+tr.grp td { background: var(--soft); text-align: left; font: 700 13px var(--f-head); color: var(--gold) }
+td.p button { all: unset; cursor: pointer; padding: 4px 8px; border-radius: 8px; display: inline-block; min-width: 56px; text-align: right }
+td.p button:hover { outline: 1px solid var(--line) }
+td.p .best { background: var(--ok-soft); color: var(--ok); font-weight: 700 }
+td.p .pref { outline: 2px solid var(--gold) }
+td.p .pref::before { content: "★ "; color: var(--gold) }
+td.none { color: var(--line) }
+td.m.loss { color: var(--bad); font-weight: 700 } td.m.low { color: var(--warn, #b7791f) }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 8px 2px }
+.legend i { font-style: normal; padding: 1px 8px; border-radius: 6px }
+.sup { display: grid; gap: 10px }
+.srow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px }
+.srow small { color: var(--muted); display: block }
+.srow .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end }
+.srow.off { opacity: .55 }
+.newlink { grid-column: 1 / -1; background: var(--gold-soft); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; word-break: break-all }
+form.add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)) } .srow, form.add { grid-template-columns: 1fr } .srow .acts { justify-content: flex-start } }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap bar"><img src="logo.png" alt="888 Grocery"><span class="role">Supplier prices</span></div></header>
+<div class="wrap"><main id="app"><div class="empty">Loading…</div></main></div>
+<script>
+const params = new URLSearchParams(location.search);
+const API = (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(params.get('api') || '') ? params.get('api') : '__API__');
+const app = document.getElementById('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const peso = (n) => n == null ? '' : '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ago = (s) => { if (!s) return 'never'; const d = (Date.now() - Date.parse(s)) / 864e5; return d < 1 ? 'today' : d < 2 ? 'yesterday' : `${Math.floor(d)} days ago`; };
+const linkFor = (t) => new URL(`supplier.html?t=${t}`, location.href).href;
+let KEY = null; try { KEY = localStorage.getItem('888-admin-key'); } catch {}
+let data = null, tab = 'compare', q = '', grp = '', onlyPriced = false, fresh = {};
+
+async function api(method, body, query = '') {
+  const res = await fetch(`${API}/sadmin${query}`, { method, headers: { 'content-type': 'application/json', 'x-admin-key': KEY || '' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await res.json().catch(() => ({}));
+  if (res.status === 403) { logout('Wrong admin key.'); throw new Error('Wrong admin key'); }
+  if (!res.ok) throw new Error(j.error || 'Something went wrong.');
+  return j;
+}
+function loginView(msg) {
+  app.innerHTML = `<div class="card" style="max-width:420px;margin:24px auto"><h2>Supplier prices</h2>
+    <p class="note">Enter your 888 admin key (the same one as the Dispatch admin screen).</p>${msg ? `<p class="note" style="color:var(--bad)">${esc(msg)}</p>` : ''}
+    <form id="login" style="display:grid;gap:10px"><label class="field">Admin key<input id="key" type="password" autocomplete="current-password" required></label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="remember" checked> Remember on this device</label>
+    <button class="btn primary">Open</button></form></div>`;
+}
+function logout(msg) { KEY = null; try { localStorage.removeItem('888-admin-key'); } catch {} loginView(msg); }
+async function load() { data = await api('GET'); render(); }
+
+// price lookups
+function table() {
+  const by = new Map();
+  for (const r of data.prices) { if (!by.has(r.v)) by.set(r.v, new Map()); by.get(r.v).set(r.s, r); }
+  return by;
+}
+function render() {
+  const active = data.suppliers.filter((s) => s.active);
+  app.innerHTML = `<div class="tabs" role="tablist">
+      <button role="tab" data-tab="compare" aria-selected="${tab === 'compare'}">Compare prices</button>
+      <button role="tab" data-tab="suppliers" aria-selected="${tab === 'suppliers'}">Suppliers (${active.length})</button></div>
+    <div id="body"></div>`;
+  document.getElementById('body').innerHTML = tab === 'compare' ? compareView(active) : suppliersView();
+}
+
+function compareView(active) {
+  const by = table();
+  const groups = [...new Set(data.items.map((i) => i.group))];
+  const ql = q.toLowerCase();
+  const rows = data.items.filter((i) => (!ql || i.title.toLowerCase().includes(ql) || i.sku.toLowerCase().includes(ql)) && (!grp || i.group === grp) && (!onlyPriced || by.has(i.variantId)));
+  let priced = 0, loss = 0, saving = 0;
+  for (const i of data.items) {
+    const m = by.get(i.variantId); if (!m) continue;
+    const ps = active.map((s) => m.get(s.id)?.p).filter((x) => x != null); if (!ps.length) continue;
+    priced++; const best = Math.min(...ps);
+    if (i.sellPrice != null && best >= i.sellPrice) loss++;
+    const pref = data.preferred[i.variantId], pp = pref && m.get(pref)?.p;
+    if (pp != null && pp > best) saving += pp - best;
+  }
+  if (!active.length) return `<div class="empty">No suppliers yet. Add one on the <b>Suppliers</b> tab, then send them their link.</div>`;
+  let lastGroup = '';
+  const body = rows.map((i) => {
+    const m = by.get(i.variantId) ?? new Map();
+    const ps = active.map((s) => m.get(s.id)?.p).filter((x) => x != null);
+    const best = ps.length ? Math.min(...ps) : null;
+    const pref = data.preferred[i.variantId];
+    const cost = pref && m.get(pref) ? m.get(pref).p : best;
+    const margin = cost != null && i.sellPrice ? (i.sellPrice - cost) / i.sellPrice * 100 : null;
+    const head = i.group !== lastGroup ? `<tr class="grp"><td class="item" colspan="${active.length + 4}">${esc(i.group)}</td></tr>` : '';
+    lastGroup = i.group;
+    return head + `<tr><td class="item">${esc(i.title)}<small>${esc(i.sku)}</small></td>
+      ${active.map((s) => { const r = m.get(s.id); if (!r) return '<td class="none">—</td>';
+        const cls = [r.p === best ? 'best' : '', pref === s.id ? 'pref' : ''].join(' ');
+        return `<td class="p"><button class="${cls}" data-v="${esc(i.variantId)}" data-s="${s.id}" title="${esc(s.name)} · updated ${ago(r.at)} · click to make preferred">${peso(r.p)}</button></td>`; }).join('')}
+      <td>${peso(i.sellPrice)}</td>
+      <td>${cost != null ? peso(cost) : ''}</td>
+      <td class="m ${margin != null && margin <= 0 ? 'loss' : margin != null && margin < 10 ? 'low' : ''}">${margin != null ? margin.toFixed(1) + '%' : ''}</td></tr>`;
+  }).join('');
+  return `<div class="tiles">
+      <div class="tile"><small>Items</small><b>${data.items.length}</b></div>
+      <div class="tile"><small>Items with a price</small><b>${priced}</b></div>
+      <div class="tile"><small>Cheapest ≥ our price</small><b>${loss}</b></div>
+      <div class="tile"><small>Saving if all cheapest</small><b>${peso(saving)}</b></div></div>
+    <div class="tools"><input type="search" id="q" placeholder="Search item or SKU" value="${esc(q)}" aria-label="Search">
+      <select id="grp" aria-label="Category"><option value="">All categories</option>${groups.map((g) => `<option ${g === grp ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+      <label><input type="checkbox" id="priced" ${onlyPriced ? 'checked' : ''}> Only items with a price</label>
+      <button class="btn small" id="cheapAll">Prefer cheapest for all</button></div>
+    <div class="legend"><span><i style="background:var(--ok-soft);color:var(--ok);font-weight:700">₱</i> cheapest</span><span><i style="outline:2px solid var(--gold)">★</i> your preferred supplier (click a price to choose)</span><span>Cost = preferred, or cheapest if none chosen</span></div>
+    <div class="scroll"><table><thead><tr><th class="item">Item</th>
+      ${active.map((s) => `<th>${esc(s.name)}<small>${esc(s.location || '')}</small></th>`).join('')}
+      <th>Our price</th><th>Cost</th><th>Margin</th></tr></thead><tbody>${body || `<tr><td class="item" colspan="${active.length + 4}">No items match.</td></tr>`}</tbody></table></div>`;
+}
+
+function suppliersView() {
+  const counts = new Map(); for (const r of data.prices) counts.set(r.s, (counts.get(r.s) || 0) + 1);
+  return `<div class="card" style="margin-bottom:14px"><h3>Add a supplier</h3>
+      <form class="add" id="add"><label class="field">Name<input name="name" required maxlength="80"></label>
+      <label class="field">Location<input name="location" placeholder="e.g. Masinloc" maxlength="80"></label>
+      <label class="field">Contact<input name="contact" placeholder="Phone or email" maxlength="120"></label>
+      <button class="btn primary">Add and make link</button></form>
+      <p class="note">Each supplier gets their own private link. They see only the item list and their own prices, never your selling prices or other suppliers.</p></div>
+    <div class="sup">${data.suppliers.map((s) => `<div class="srow ${s.active ? '' : 'off'}">
+      <div><b>${esc(s.name)}</b><small>${esc([s.location, s.contact].filter(Boolean).join(' · '))}</small></div>
+      <div><small>${counts.get(s.id) || 0} items priced</small><small>Last opened: ${ago(s.last_seen_at)}</small></div>
+      <div class="acts"><button class="btn small" data-act="newLink" data-id="${s.id}">New link</button>
+        <button class="btn small ${s.active ? 'danger' : ''}" data-act="toggle" data-id="${s.id}">${s.active ? 'Switch off' : 'Switch on'}</button></div>
+      ${fresh[s.id] ? `<div class="newlink"><b>Send this link to ${esc(s.name)}:</b><br>${esc(linkFor(fresh[s.id]))}<br><button class="btn small" data-act="copy" data-id="${s.id}" style="margin-top:6px">Copy link</button> <small>Shown once. Any older link for this supplier no longer works.</small></div>` : ''}
+    </div>`).join('') || '<div class="empty">No suppliers yet.</div>'}</div>`;
+}
+
+app.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (e.target.id === 'login') { KEY = document.getElementById('key').value.trim(); if (document.getElementById('remember').checked) try { localStorage.setItem('888-admin-key', KEY); } catch {} try { await load(); } catch {} return; }
+  if (e.target.id === 'add') {
+    const f = new FormData(e.target);
+    try { const r = await api('POST', { act: 'addSupplier', name: f.get('name'), location: f.get('location'), contact: f.get('contact') }); fresh[r.id] = r.token; await load(); }
+    catch (err) { alert(err.message); }
+  }
+});
+app.addEventListener('input', (e) => {
+  if (e.target.id === 'q') { q = e.target.value; const pos = e.target.selectionStart; render(); const el = document.getElementById('q'); el.focus(); el.setSelectionRange(pos, pos); }
+});
+app.addEventListener('change', (e) => {
+  if (e.target.id === 'grp') { grp = e.target.value; render(); }
+  if (e.target.id === 'priced') { onlyPriced = e.target.checked; render(); }
+});
+app.addEventListener('click', async (e) => {
+  const t = e.target.closest('[data-tab]'); if (t) { tab = t.dataset.tab; render(); return; }
+  const cell = e.target.closest('td.p button');
+  if (cell) {
+    const v = cell.dataset.v, s = cell.dataset.s, same = data.preferred[v] === s;
+    try { await api('POST', { act: 'prefer', variantId: v, supplierId: same ? null : s }); if (same) delete data.preferred[v]; else data.preferred[v] = s; render(); } catch (err) { alert(err.message); }
+    return;
+  }
+  if (e.target.id === 'cheapAll') {
+    if (!confirm('Make the cheapest supplier the preferred one for every item that has a price?')) return;
+    const by = table(), active = new Set(data.suppliers.filter((s) => s.active).map((s) => s.id));
+    for (const [v, m] of by) {
+      const best = [...m.values()].filter((r) => active.has(r.s)).sort((a, b) => a.p - b.p)[0];
+      if (best && data.preferred[v] !== best.s) { await api('POST', { act: 'prefer', variantId: v, supplierId: best.s }); data.preferred[v] = best.s; }
+    }
+    render(); return;
+  }
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const s = data.suppliers.find((x) => x.id === b.dataset.id);
+  if (b.dataset.act === 'copy') { try { await navigator.clipboard.writeText(linkFor(fresh[s.id])); b.textContent = 'Copied'; } catch { prompt('Copy this link:', linkFor(fresh[s.id])); } return; }
+  if (b.dataset.act === 'newLink') {
+    if (!confirm(`Make a new link for ${s.name}? Their old link will stop working.`)) return;
+    try { const r = await api('POST', { act: 'newLink', id: s.id }); fresh[s.id] = r.token; render(); } catch (err) { alert(err.message); }
+  }
+  if (b.dataset.act === 'toggle') {
+    try { await api('POST', { act: 'editSupplier', id: s.id, name: s.name, location: s.location, contact: s.contact, active: !s.active }); await load(); } catch (err) { alert(err.message); }
+  }
+});
+
+(async () => { if (!KEY) return loginView(); try { await load(); } catch {} })();
+</script>
+</body>
+</html>

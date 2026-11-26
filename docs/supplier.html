@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>888 Supplier Prices</title>
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="common.css">
+<style>
+.wrap { max-width: 760px }
+.role { font: 700 13px var(--f-head); letter-spacing: .08em; text-transform: uppercase; color: #dcae5e }
+.tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.tools input[type=search] { flex: 1 1 220px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 15px; min-width: 0 }
+.tools label { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--muted) }
+.group h3 { font-size: 15px; margin: 18px 0 6px; color: var(--gold) }
+.list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden }
+.list li { display: grid; grid-template-columns: 44px minmax(0, 1fr) 128px; gap: 10px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line) }
+.list li:first-child { border-top: 0 }
+.list img, .list .ph { width: 44px; height: 44px; object-fit: contain; border-radius: 8px; background: #fff }
+.list .t { font-size: 14px; line-height: 1.3 }
+.list .t small { display: block; color: var(--muted); font-size: 12px }
+.pin { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 8px }
+.pin span { color: var(--muted); font-weight: 600 }
+.pin input { width: 100%; border: 0; background: transparent; padding: 10px 4px; font-size: 16px; text-align: right; min-width: 0; outline: none }
+li.changed .pin { border-color: var(--gold); background: var(--gold-soft) }
+li.bad .pin { border-color: var(--bad); background: var(--bad-soft) }
+.savebar { position: sticky; bottom: 0; background: var(--bg); border-top: 1px solid var(--line); padding: 10px 0 calc(10px + env(safe-area-inset-bottom)); display: flex; gap: 10px; align-items: center; margin-top: 16px }
+.savebar .msg { flex: 1; font-size: 14px; color: var(--muted) }
+.savebar .btn { min-width: 150px }
+.msg.ok { color: var(--ok) } .msg.bad { color: var(--bad) }
+@media (max-width: 420px) { .list li { grid-template-columns: 40px minmax(0, 1fr) 108px; gap: 8px } .list img, .list .ph { width: 40px; height: 40px } }
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap bar"><img src="logo.png" alt="888 Grocery"><span class="role">Supplier prices</span></div></header>
+<div class="wrap"><main id="app"><div class="empty">Loading…</div></main></div>
+<script>
+const params = new URLSearchParams(location.search);
+const API = (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(params.get('api') || '') ? params.get('api') : 'https://jssnhzkyhtobhuogddeq.supabase.co/functions/v1/api');
+const T = params.get('t') || '';
+const app = document.getElementById('app');
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const thumb = (u) => { try { const x = new URL(u); x.searchParams.set('width', '88'); return x.href; } catch { return u; } };
+const money = (n) => n == null ? '' : Number(n).toFixed(2);
+const day = (s) => s ? new Date(s).toLocaleDateString('en-PH', { day: 'numeric', month: 'short' }) : '';
+let data = null, edits = new Map(), filter = '', onlyMine = false;
+
+async function api(method, body) {
+  const res = await fetch(`${API}/supplier${method === 'GET' ? '?t=' + encodeURIComponent(T) : ''}`, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify({ t: T, ...body }) : undefined });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(j.error || 'Something went wrong. Please try again.'), { bad: j.bad });
+  return j;
+}
+const parse = (s) => { s = String(s).replace(/[₱,\s]/g, ''); if (s === '') return null; const n = Number(s); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : NaN; };
+
+function render() {
+  const q = filter.toLowerCase();
+  const shown = data.items.filter((i) => (!q || i.title.toLowerCase().includes(q)) && (!onlyMine || data.prices[i.variantId] || edits.has(i.variantId)));
+  const groups = [...new Set(shown.map((i) => i.group))];
+  const priced = Object.keys(data.prices).length;
+  app.innerHTML = `
+    <div class="card"><h2>Hello, ${esc(data.supplier.name)}</h2>
+      <p class="note">Please enter the price you charge 888 Grocery for each item, in pesos. Leave an item blank if you don't sell it. You can come back to this link at any time to update your prices.</p>
+      <p class="note"><b>${priced}</b> of ${data.items.length} items priced${data.supplier.location ? ` · ${esc(data.supplier.location)}` : ''}</p></div>
+    <div class="tools" style="margin-top:14px"><input type="search" id="q" placeholder="Search items" value="${esc(filter)}" aria-label="Search items">
+      <label><input type="checkbox" id="mine" ${onlyMine ? 'checked' : ''}> Only my priced items</label></div>
+    ${groups.length ? groups.map((g) => `<section class="group"><h3>${esc(g)}</h3><ul class="list">${shown.filter((i) => i.group === g).map(row).join('')}</ul></section>`).join('') : '<div class="empty" style="margin-top:14px">No items match.</div>'}
+    <div class="savebar"><div class="msg" id="msg">${edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved'}</div>
+      <button class="btn primary" id="save" ${edits.size ? '' : 'disabled'}>Save prices</button></div>`;
+}
+function row(i) {
+  const cur = data.prices[i.variantId];
+  const val = edits.has(i.variantId) ? edits.get(i.variantId) : money(cur?.price);
+  const changed = edits.has(i.variantId), bad = changed && Number.isNaN(parse(val));
+  return `<li class="${bad ? 'bad' : changed ? 'changed' : ''}" data-v="${esc(i.variantId)}">
+    ${i.image ? `<img src="${esc(thumb(i.image))}" alt="" loading="lazy">` : '<div class="ph"></div>'}
+    <div class="t">${esc(i.title)}${cur && !changed ? `<small>Updated ${day(cur.at)}</small>` : ''}</div>
+    <div class="pin"><span>₱</span><input inputmode="decimal" autocomplete="off" value="${esc(val)}" aria-label="Your price for ${esc(i.title)}" placeholder="—"></div></li>`;
+}
+
+app.addEventListener('input', (e) => {
+  if (e.target.id === 'q') { filter = e.target.value; const pos = e.target.selectionStart; render(); const q = document.getElementById('q'); q.focus(); q.setSelectionRange(pos, pos); return; }
+  const li = e.target.closest('li[data-v]'); if (!li) return;
+  const v = li.dataset.v, cur = data.prices[v]?.price ?? null, p = parse(e.target.value);
+  if (p === cur) edits.delete(v); else edits.set(v, e.target.value);
+  li.className = edits.has(v) ? (Number.isNaN(p) ? 'bad' : 'changed') : '';
+  const m = document.getElementById('msg'); m.className = 'msg'; m.textContent = edits.size ? `${edits.size} change${edits.size > 1 ? 's' : ''} not saved yet` : 'All prices saved';
+  document.getElementById('save').disabled = !edits.size;
+});
+app.addEventListener('change', (e) => { if (e.target.id === 'mine') { onlyMine = e.target.checked; render(); } });
+app.addEventListener('click', async (e) => {
+  if (e.target.id !== 'save') return;
+  const m = document.getElementById('msg');
+  const list = [...edits].map(([variantId, price]) => ({ variantId, price: parse(price) }));
+  if (list.some((x) => Number.isNaN(x.price))) { m.className = 'msg bad'; m.textContent = 'Some prices are not numbers. Fix the boxes in red.'; return; }
+  e.target.disabled = true; m.className = 'msg'; m.textContent = 'Saving…';
+  try {
+    await api('POST', { prices: list });
+    edits.clear(); data = await api('GET'); render();
+    const m2 = document.getElementById('msg'); m2.className = 'msg ok'; m2.textContent = 'Saved. Thank you!';
+  } catch (err) { m.className = 'msg bad'; m.textContent = err.message; e.target.disabled = false; }
+});
+window.addEventListener('beforeunload', (e) => { if (edits.size) { e.preventDefault(); e.returnValue = ''; } });
+
+(async () => {
+  if (!T) { app.innerHTML = '<div class="empty">Please open the link 888 Grocery sent you.</div>'; return; }
+  try { data = await api('GET'); render(); }
+  catch (err) { app.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+})();
+</script>
+</body>
+</html>
