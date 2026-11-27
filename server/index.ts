@@ -868,57 +868,84 @@ async function emailVoucherBuyer(batchId: string) {
   if (!claim?.length) return { sent: false };
 
   const page = `${SHOP_URL}/pages/my-vouchers#m=${b.manage_token}`;
-  const giftLink = (t: string) => `${SHOP_URL}/pages/gift#t=${t}`;
   const n = cards.length, plural = n === 1 ? '' : 's';
-  const paidAs = b.amount_local && b.currency && b.currency !== 'PHP' ? ` (${b.currency} ${Number(b.amount_local).toLocaleString('en')} each)` : '';
-  const hi = b.buyer_name ? `Hi ${b.buyer_name.split(/\s+/)[0]},` : 'Hello,';
-  const subject = `Your 888 Grocery gift voucher${plural} ${b.shopify_order ? `for order ${b.shopify_order} ` : ''}${n === 1 ? 'is' : 'are'} ready`;
-  const rows = cards.map((v: any, i: number) => `<tr>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;color:#666">${i + 1}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee">${v.staff_name ? escH(v.staff_name) : '<span style="color:#999">Not named yet</span>'}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee;white-space:nowrap">${pesos(b.budget_php)}</td>
-      <td style="padding:10px 8px;border-bottom:1px solid #eee"><a href="${escH(giftLink(v.token))}" style="color:#4a2e1c">Open card</a></td></tr>`).join('');
-  const html = `<div style="background:#f6f1ea;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#2b2b2b">
-  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden">
-    <div style="background:#4a2e1c;color:#fff;padding:20px 24px;font-size:20px;font-weight:bold">888 Grocery</div>
-    <div style="padding:24px">
-      <h1 style="font-size:22px;margin:0 0 12px">Your gift voucher${plural} ${n === 1 ? 'is' : 'are'} ready</h1>
-      <p style="margin:0 0 12px">${escH(hi)}</p>
-      <p style="margin:0 0 12px">Thank you for your order${b.shopify_order ? ` <b>${escH(b.shopify_order)}</b>` : ''}. You bought <b>${n} gift voucher${plural}</b> of <b>${pesos(b.budget_php)}</b>${escH(paidAs)} for <b>${escH(b.company)}</b>.</p>
-      <p style="text-align:center;margin:24px 0"><a href="${escH(page)}" style="background:#4a2e1c;color:#fff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;display:inline-block">Open your voucher page</a></p>
-      <p style="margin:0 0 6px"><b>On your voucher page you can:</b></p>
-      <ul style="margin:0 0 16px;padding-left:20px;line-height:1.6">
-        <li>Print the cards, or save them as a PDF (choose "Save as PDF" in the print window)</li>
-        <li>Put each employee's name on their card</li>
-        <li>Copy or text each person their own gift link</li>
-        <li>Download the full list as a spreadsheet (CSV)</li>
-      </ul>
-      <p style="margin:0 0 8px"><b>Your card${plural}</b></p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
-        <tr><th align="left" style="padding:8px;border-bottom:2px solid #4a2e1c">#</th><th align="left" style="padding:8px;border-bottom:2px solid #4a2e1c">For</th><th align="left" style="padding:8px;border-bottom:2px solid #4a2e1c">Value</th><th align="left" style="padding:8px;border-bottom:2px solid #4a2e1c">Card</th></tr>
-        ${rows}
-      </table>
-      <p style="margin:16px 0 0;font-size:13px;color:#666">Each card is a grocery gift for the person and their family in the Philippines, delivery included. They open their card, choose their groceries and use the card's code at checkout.</p>
-      <p style="margin:12px 0 0;font-size:13px;color:#666">Your payment receipt shows this as "Company Gift Voucher Credit" lines. That is the payment for these cards, not separate items.</p>
-      <p style="margin:12px 0 0;font-size:13px;color:#666">Keep this email private: anyone with a card link can use that card. Questions? Reply to this email or write to hello@888grocery.com.</p>
-    </div>
+  const paidAs = b.amount_local && b.currency && b.currency !== 'PHP' ? ` (${b.currency} ${Number(b.amount_local).toLocaleString('en')})` : '';
+  const subject = `Your 888 Grocery gift card${plural} ${n === 1 ? 'is' : 'are'} ready`;
+  const btn = (href: string, label: string, main: boolean) => `<a href="${escH(href)}" style="display:block;margin:0 0 12px;padding:16px 20px;border-radius:10px;text-align:center;font-weight:bold;font-size:16px;text-decoration:none;${main ? 'background:#4a2e1c;color:#ffffff;border:2px solid #4a2e1c' : 'background:#ffffff;color:#4a2e1c;border:2px solid #4a2e1c'}">${label}</a>`;
+  const html = mailFrame(`
+      <h1 style="font-size:22px;margin:0 0 8px">Your gift card${plural} ${n === 1 ? 'is' : 'are'} ready</h1>
+      <p style="margin:0 0 20px;color:#555">${escH(b.company)} · ${n} card${plural} · ${pesos(b.budget_php)}${escH(paidAs)} each</p>
+      ${btn(page, `Open your gift card${plural}`, true)}
+      ${btn(`${page}&go=print`, `Print or download card${plural} (PDF)`, false)}
+      ${btn(`${page}&go=cards`, `Add names and email card${plural} to employees`, false)}
+      <p style="margin:12px 0 0;font-size:13px;color:#777">Keep this email private: it opens your cards. Questions? Reply to this email.</p>`);
+  const text = `Your gift card${plural} ${n === 1 ? 'is' : 'are'} ready.\n${b.company} · ${n} card${plural} · ${pesos(b.budget_php)}${paidAs} each\n\n` +
+    `Open your gift card${plural}: ${page}\nPrint or download (PDF): ${page}&go=print\nAdd names and email cards to employees: ${page}&go=cards\n\nKeep this email private: it opens your cards.\n`;
+  const r = await resendEmail({ to: b.buyer_email, subject, html, text, replyTo: 'hello@888grocery.com', ref: batchId });
+  if (!r.ok) await db.from('voucher_batches').update({ buyer_emailed_at: null }).eq('id', batchId); // let the tick try again
+  return { sent: r.ok };
+}
+// Same look for every 888 email: brown header, white card.
+const mailFrame = (inner: string) => `<div style="background:#f6f1ea;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#2b2b2b">
+  <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden">
+    <div style="background:#4a2e1c;color:#fff;padding:18px 24px;font-size:20px;font-weight:bold">888 Grocery</div>
+    <div style="padding:24px">${inner}</div>
   </div></div>`;
-  const text = `${hi}\n\nThank you for your order ${b.shopify_order ?? ''}. You bought ${n} gift voucher${plural} of ${pesos(b.budget_php)}${paidAs} for ${b.company}.\n\n` +
-    `Open your voucher page: ${page}\nThere you can print the cards or save them as PDF, put each employee's name on a card, send each person their own link, and download the list.\n\n` +
-    cards.map((v: any, i: number) => `${i + 1}. ${v.staff_name || 'Not named yet'} - ${pesos(b.budget_php)} - ${giftLink(v.token)}`).join('\n') +
-    `\n\nYour payment receipt shows this as "Company Gift Voucher Credit" lines: that is the payment for these cards.\nKeep this email private: anyone with a card link can use that card.\nQuestions? Reply to this email or write to hello@888grocery.com.\n`;
+async function resendEmail(o: { to: string; subject: string; html: string; text: string; replyTo?: string; ref?: string }) {
+  const key = await secret('resend_api_key');
   let ok = false, response = '';
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ from: '888 Grocery <gifts@mail.888grocery.com>', reply_to: 'hello@888grocery.com', to: [b.buyer_email], subject, html, text }),
-    });
-    response = (await res.text()).slice(0, 500);
-    ok = res.ok;
-  } catch (e) { response = String(e).slice(0, 200); }
-  if (!ok) await db.from('voucher_batches').update({ buyer_emailed_at: null }).eq('id', batchId); // let the tick try again
-  await db.from('sms_log').insert({ to_number: b.buyer_email, kind: 'email', ref: batchId, message: subject, ok, response });
-  return { sent: ok };
+  if (!key || key.startsWith('PASTE-')) response = 'No Resend key yet';
+  else {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ from: '888 Grocery <gifts@mail.888grocery.com>', reply_to: o.replyTo || 'hello@888grocery.com', to: [o.to], subject: o.subject, html: o.html, text: o.text }),
+      });
+      response = (await res.text()).slice(0, 500);
+      ok = res.ok;
+    } catch (e) { response = String(e).slice(0, 200); }
+  }
+  await db.from('sms_log').insert({ to_number: o.to, kind: 'email', ref: o.ref ?? null, message: o.subject, ok, response });
+  return { ok, response };
+}
+// One card, emailed straight to the employee the office manager named on it.
+async function emailVoucherCard(b: any, v: any) {
+  const to = String(v.staff_contact ?? '').trim();
+  if (!EMAIL_RE.test(to)) return { ok: false, reason: 'Add the employee\'s email first.' };
+  if (!b.paid || b.reversed_at) return { ok: false, reason: 'These cards are not active.' };
+  if (!v.token || v.status === 'cancelled' || v.status === 'redeemed') return { ok: false, reason: 'This card has already been used.' };
+  // Brakes: 3 emails per card a day, and (cards x 3 + 5) per order a day.
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  const { count: perCard } = await db.from('sms_log').select('id', { count: 'exact', head: true }).eq('kind', 'email').eq('ref', v.code).gte('at', dayAgo);
+  if ((perCard ?? 0) >= 3) return { ok: false, reason: 'This card was emailed 3 times today. Please try again tomorrow.' };
+  const { data: codes } = await db.from('vouchers').select('code').eq('batch_id', b.id);
+  const { count: perBatch } = await db.from('sms_log').select('id', { count: 'exact', head: true }).eq('kind', 'email').in('ref', (codes ?? []).map((c: any) => c.code)).gte('at', dayAgo);
+  if ((perBatch ?? 0) >= Number(b.qty) * 3 + 5) return { ok: false, reason: 'Too many emails today. Please try again tomorrow.' };
+  const link = `${SHOP_URL}/pages/gift#t=${v.token}`;
+  const name = v.staff_name ? String(v.staff_name).split(/\s+/)[0] : '';
+  const code = v.gift_card_code || v.code;
+  const subject = `${b.company} sent you a grocery gift for your family`;
+  const greet = String(b.greeting ?? '').trim();
+  const html = mailFrame(`
+      <h1 style="font-size:22px;margin:0 0 12px">A grocery gift for you and your family</h1>
+      <p style="margin:0 0 12px">${name ? `Hi ${escH(name)},` : 'Hello,'}</p>
+      <p style="margin:0 0 16px"><b>${escH(b.company)}</b> has sent you a <b>${pesos(b.budget_php)}</b> grocery gift card for your family in the Philippines. Delivery is included.</p>
+      ${greet ? `<p style="margin:0 0 16px;padding:12px 16px;background:#f6f1ea;border-radius:8px;font-style:italic;white-space:pre-line">${escH(greet)}${b.sign_off ? `<br><span style="font-style:normal;font-size:13px;color:#7a5a2a">${escH(b.sign_off)}</span>` : ''}</p>` : ''}
+      <a href="${escH(link)}" style="display:block;margin:0 0 16px;padding:16px 20px;border-radius:10px;text-align:center;font-weight:bold;font-size:16px;text-decoration:none;background:#4a2e1c;color:#ffffff">Open your gift card</a>
+      <p style="margin:0 0 4px;font-size:13px;color:#777">Your gift card code</p>
+      <p style="margin:0 0 16px;font:bold 20px monospace;letter-spacing:2px">${escH(code)}</p>
+      <p style="margin:0 0 6px"><b>How to use it</b></p>
+      <ol style="margin:0 0 12px;padding-left:20px;line-height:1.6">
+        <li>Send this email or the card link to your family.</li>
+        <li>They pick groceries at 888grocery.com.</li>
+        <li>At checkout they enter the gift card code. 888 Grocery delivers to their door.</li>
+      </ol>`);
+  const text = `${name ? `Hi ${name},` : 'Hello,'}\n\n${b.company} has sent you a ${pesos(b.budget_php)} grocery gift card for your family in the Philippines. Delivery is included.\n\n` +
+    `${greet ? greet + '\n\n' : ''}Open your gift card: ${link}\nGift card code: ${code}\n\nHow to use it: send this to your family. They pick groceries at 888grocery.com and enter the code at checkout. 888 Grocery delivers to their door.\n`;
+  const r = await resendEmail({ to, subject, html, text, replyTo: EMAIL_RE.test(b.buyer_email ?? '') ? b.buyer_email : undefined, ref: v.code });
+  if (!r.ok) return { ok: false, reason: 'The email did not send. Please check the address and try again.' };
+  await db.from('vouchers').update({ card_emailed_at: new Date().toISOString() }).eq('code', v.code);
+  return { ok: true, reason: '' };
 }
 // The minute tick: any paid batch from the last 14 days whose buyer email hasn't gone yet.
 async function emailPendingVoucherBuyers() {
@@ -1023,25 +1050,36 @@ async function onVoucherManage(req: Request, url: URL) {
   const { data: b } = await db.from('voucher_batches').select('*').eq('manage_token', m).maybeSingle();
   if (!b) return json({ error: 'This voucher page link is not valid.' }, 404);
   const now = Date.now();
+  let notice: string | null = null;
   if (req.method === 'POST') {
     const owns = async (code: string) => { const { data } = await db.from('vouchers').select('code').eq('code', code).eq('batch_id', b.id).maybeSingle(); return !!data; };
-    if (!(await owns(String(body.code)))) return json({ ok: false, reason: 'Not one of your vouchers.' });
+    if (body.act !== 'emailAll' && !(await owns(String(body.code)))) return json({ ok: false, reason: 'Not one of your vouchers.' });
     if (body.act === 'staff') {
-      await db.from('vouchers').update({ staff_name: String(body.name ?? '').slice(0, 80) || null, staff_contact: String(body.contact ?? '').slice(0, 120) || null }).eq('code', body.code);
+      const contact = String(body.contact ?? '').trim().slice(0, 120);
+      if (contact.includes('@') && !EMAIL_RE.test(contact)) return json({ ok: false, reason: 'That email address doesn\'t look right. Please check it.' });
+      await db.from('vouchers').update({ staff_name: String(body.name ?? '').trim().slice(0, 80) || null, staff_contact: contact || null }).eq('code', body.code);
     } else if (body.act === 'newLink') {
-      const { data } = await db.from('vouchers').update({ token: newToken(), opened_at: null }).eq('code', body.code).eq('status', 'issued').select('code');
+      const { data } = await db.from('vouchers').update({ token: newToken(), opened_at: null, card_emailed_at: null }).eq('code', body.code).eq('status', 'issued').select('code');
       if (!data?.length) return json({ ok: false, reason: 'Only unused vouchers can get a new link.' });
+    } else if (body.act === 'emailCard' || body.act === 'emailAll') {
+      const { data: rows } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, gift_card_code, card_emailed_at').eq('batch_id', b.id).order('created_at');
+      const list = (rows ?? []).filter((v: any) => body.act === 'emailCard' ? v.code === body.code : EMAIL_RE.test(v.staff_contact ?? '') && !v.card_emailed_at);
+      if (body.act === 'emailAll' && !list.length) return json({ ok: false, reason: 'No cards to send. Add each employee\'s email first (cards already emailed are skipped).' });
+      let sent = 0, why = '';
+      for (const v of list) { const r = await emailVoucherCard(b, v); if (r.ok) sent++; else why = r.reason; }
+      if (!sent) return json({ ok: false, reason: why || 'The email did not send. Please try again.' });
+      notice = sent === 1 && body.act === 'emailCard' ? `Card emailed to ${list[0].staff_contact}` : `${sent} card${sent === 1 ? '' : 's'} emailed${why ? ` (some not sent: ${why})` : ''}`;
     } else return json({ ok: false, reason: 'Unknown action' });
   }
-  const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient, gift_card_code').eq('batch_id', b.id).order('created_at');
+  const { data: vs } = await db.from('vouchers').select('code, token, staff_name, staff_contact, status, issued_at, opened_at, redeemed_at, recipient, gift_card_code, card_emailed_at').eq('batch_id', b.id).order('created_at');
   return json({
-    ok: true,
+    ok: true, notice,
     batch: { id: b.id, company: b.company, logo: b.logo, greeting: b.greeting, signOff: b.sign_off, budgetNzd: b.budget_nzd, currency: b.currency, amountLocal: b.amount_local, budgetPhp: b.budget_php, design: b.design ?? 'christmas',
       qty: b.qty, totalPhp: b.total_php, paid: b.paid, paidAt: b.paid_at, order: b.shopify_order, pack: publicPack(b.pack) },
     vouchers: (vs ?? []).map((v: any) => {
       const state = voucherState(v, b, now);
       return { code: v.code, giftCode: v.gift_card_code ?? null, token: state === 'redeemed' ? null : v.token, staff: v.staff_name, contact: v.staff_contact,
-        state, opened: !!v.opened_at, sentTo: v.recipient ? `${v.recipient.name}, ${v.recipient.city}` : null, sentAt: v.redeemed_at };
+        state, opened: !!v.opened_at, sentTo: v.recipient ? `${v.recipient.name}, ${v.recipient.city}` : null, sentAt: v.redeemed_at, emailedAt: v.card_emailed_at ?? null };
     }),
   });
 }

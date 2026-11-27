@@ -41,3 +41,5 @@ alter table public.suppliers add column if not exists link_token text; -- kept s
 
 -- 28 Nov 2026: when the buyer's 'your vouchers are ready' email went (sent once per paid batch).
 alter table public.voucher_batches add column if not exists buyer_emailed_at timestamptz;
+-- 28 Nov 2026: when a card was last emailed to its employee from the voucher page.
+alter table public.vouchers add column if not exists card_emailed_at timestamptz;
