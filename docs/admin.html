@@ -381,10 +381,13 @@ function rulesView() {
       <label class="field">Packing fee per order (₱)<input id="p-fee" type="number" min="0" max="4999" value="${V.payout?.packingFee ?? 50}"></label>
       <button class="btn primary">Save shop pay</button></form>
       <p class="note">Applies to new orders. Example: a ₱1,400 order pays the shop ${peso(1400 * (V.payout?.share ?? 0.7) + (V.payout?.packingFee ?? 50))}.</p></section>
-    <section class="card"><h2>Texts to you</h2><form class="form" id="ownerform">
+    <section class="card"><h2>Alerts to you</h2><form class="form" id="emailform">
+      <label class="field">Your email for alerts (works in any country)<input id="o-email" type="email" inputmode="email" value="${esc(V.ownerEmail || '')}" placeholder="you@example.com"></label>
+      <button class="btn primary">Save email</button>${V.ownerEmail ? '<button class="btn" type="button" data-act="testEmail">Send me a test email</button>' : ''}</form>
+      <form class="form" id="ownerform" style="margin-top:12px">
       <label class="field">Your Philippine mobile for alerts<input id="o-phone" inputmode="tel" value="${esc(V.ownerPhone || '')}" placeholder="0917 123 4567"></label>
       <button class="btn primary">Save</button>${V.ownerPhone ? '<button class="btn" type="button" data-act="testSms">Send me a test text</button>' : ''}</form>
-      <p class="note">You'll get a text when the hub must send an order, a buyer needs asking about missing items, a Shopify order needs you, or a shop is paused. Texts go through Semaphore, which only sends to Philippine numbers. Leave it empty for no texts.</p></section>
+      <p class="note">You'll get an alert when the hub must send an order, a buyer needs asking about missing items, a Shopify order needs you, or a shop is paused. Email works anywhere. Texts go through Semaphore, which only sends to Philippine numbers. Fill in one or both; leave a box empty to switch that one off.</p></section>
     <section class="card"><h2>Dispatch rules</h2><div class="rules">${RULES.map(([k, l, h]) => `<div class="rule"><label for="r-${k}">${l}</label>
       <input id="r-${k}" data-rule="${k}" type="number" min="0" max="1000" value="${get(k)}"><small>${h}</small></div>`).join('')}</div>
     <p class="note">Changes apply to new offers straight away.</p></section>
@@ -442,6 +445,7 @@ document.addEventListener('click', async (ev) => {
   if (a === 'manualDone') await act({ act: 'manualDone', id }, 'Marked as handled');
   if (a === 'lazadaWarehouse') { await act({ act: 'lazadaWarehouse', shopId: shop, code: document.getElementById(`wh-${shop}`).value }, 'Lazada warehouse saved'); }
   if (a === 'setPhone') { await act({ act: 'setPhone', shopId: shop, phone: document.getElementById(`ph-${shop}`).value }, 'Mobile saved'); }
+  if (a === 'testEmail') { const r = await act({ act: 'testEmail' }); if (r?.sent) toast('Test email sent'); sms = null; }
   if (a === 'testSms') { const r = await act({ act: 'testSms', shopId: shop }); if (r?.sent) toast('Test text sent'); sms = null; if (tab === 'shops') loadSms(); }
   if (a === 'buyerChoice') { const r = await act({ act: 'buyerChoice', orderId: id, choice: b.dataset.choice }); if (r?.ok) toast(r.followUp ? `Follow-up order ${r.followUp} is going out` : `Recorded. Refund ${peso(r.refund)} in Shopify.`); }
   if (a === 'pauseShop') await act({ act: 'pauseShop', shopId: shop }, 'Shop paused');
@@ -459,6 +463,7 @@ document.addEventListener('submit', async (ev) => {
     const r = await act({ act: 'addShop', name: v('s-name'), city: v('s-city'), province: v('s-prov'), phone: v('s-phone') });
     if (r?.link) { newLink = { name: v('s-name'), url: `${SHOP_PAGE}#t=${r.link}` }; toast('Shop added. Send them the link.'); render(); }
   }
+  if (f.id === 'emailform') await act({ act: 'ownerEmail', email: document.getElementById('o-email').value }, 'Email saved');
   if (f.id === 'ownerform') await act({ act: 'ownerPhone', phone: document.getElementById('o-phone').value }, 'Saved');
   if (f.id === 'payout') await act({ act: 'payoutRule', share: Number(document.getElementById('p-share').value) / 100, packingFee: Number(document.getElementById('p-fee').value) }, 'Shop pay saved');
 });

@@ -75,6 +75,49 @@ async function sendTexts(texts: any[]) {
   return results;
 }
 
+// ---------- Owner alerts: text (Philippine number) and/or email (any country, via Resend) ----------
+// The alert messages are built by sms.js for a phone number, so they are built for a placeholder number
+// and then sent to whatever the owner set: a PH mobile, an email address, or both.
+const ALERT_PH = '09170000000';
+const EMAIL_RE = /^[^\s@<>,;]+@[^\s@<>,;]+\.[a-z]{2,}$/i;
+const ADMIN_URL = 'https://wimaxnz.github.io/888-dispatch/admin.html';
+async function sendEmails(to: string, msgs: any[]) {
+  if (!msgs.length || !EMAIL_RE.test(to || '')) return [];
+  const key = await secret('resend_api_key');
+  const from = (await secret('resend_from')) || '888 Alerts <onboarding@resend.dev>';
+  const results = [];
+  for (const m of msgs.slice(0, 20)) {
+    let ok = false, response = '';
+    if (!key || key.startsWith('PASTE-')) response = 'No Resend key yet';
+    else {
+      try {
+        const subject = m.message.replace(/^888( URGENT)?:\s*/, (x: string) => x.includes('URGENT') ? '888 URGENT: ' : '888: ').slice(0, 120);
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ from, to: [to], subject, text: `${m.message}\n\nOpen the 888 admin: ${ADMIN_URL}\n` }),
+        });
+        response = (await res.text()).slice(0, 500);
+        ok = res.ok;
+      } catch (e) { response = String(e).slice(0, 200); }
+    }
+    results.push({ ...m, to, ok, response });
+  }
+  await db.from('sms_log').insert(results.map((r) => ({ to_number: r.to, kind: 'email', ref: r.ref ?? null, message: r.message, ok: r.ok, response: r.response })));
+  return results;
+}
+async function ownerContacts() {
+  const { data } = await db.from('dispatch_state').select('phone:state->>ownerPhone, email:state->>ownerEmail').eq('id', 1).maybeSingle();
+  return { phone: (data as any)?.phone ?? '', email: (data as any)?.email ?? '' };
+}
+async function alertOwner(msgs: any[], who?: { phone: string; email: string }) {
+  msgs = msgs.filter(Boolean);
+  if (!msgs.length) return;
+  who = who ?? await ownerContacts();
+  const to = normalizePH(who.phone);
+  try { if (to) await sendTexts(msgs.map((m) => ({ ...m, to }))); } catch (e) { console.error('sms', e); }
+  try { await sendEmails(who.email, msgs); } catch (e) { console.error('email', e); }
+}
+
 type Ctx = { d: any; extra: any; now: number };
 // Load, change, save — with a version check so two requests never overwrite
 // each other (that is what makes "first shop to accept wins" safe).
@@ -101,7 +144,9 @@ async function withState<T>(fn: (c: Ctx) => T | Promise<T>): Promise<T> {
       await db.from('event_log').insert(fresh.map((e: any) => ({
         at: new Date(e.at).toISOString(), type: e.type, order_id: e.order ?? null, shop_id: e.shop ?? null, data: e,
       })));
-      try { await sendTexts(textsFor(fresh, d, { ownerPhone: extra.ownerPhone })); } catch (e) { console.error('sms', e); }
+      const all = textsFor(fresh, d, { ownerPhone: ALERT_PH });
+      try { await sendTexts(all.filter((t: any) => t.kind !== 'owner')); } catch (e) { console.error('sms', e); }
+      await alertOwner(all.filter((t: any) => t.kind === 'owner'), { phone: extra.ownerPhone ?? '', email: extra.ownerEmail ?? '' });
     }
     return result;
   }
@@ -130,14 +175,14 @@ async function onShopify(req: Request) {
   try { await payVoucherBatches(o); } catch (e) { console.error('voucher payment', e); }
   const result = await withState(({ d, extra }) => {
     const r: any = fromShopify(o, catalog, extra.payout ?? PAYOUT);
-    if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, extra.ownerPhone) }; }
+    if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, ALERT_PH) }; }
     if (r.skip) return { skipped: r.skip };
     if (d.orders.has(r.order.id)) return { exists: r.order.id };
     d.packages.set(r.package.id, r.package);
     d.placeOrder(r.order);
     return { dispatched: r.order.id };
   });
-  if ((result as any).ownerText) { try { await sendTexts([(result as any).ownerText]); } catch (e) { console.error('sms', e); } delete (result as any).ownerText; }
+  if ((result as any).ownerText) { await alertOwner([(result as any).ownerText]); delete (result as any).ownerText; }
   await db.from('shopify_orders').update({ result }).eq('shopify_id', o.id);
   return json({ ok: true, ...result });
 }
@@ -169,7 +214,7 @@ async function onLazada(req: Request) {
         if (stage !== 'new') return { history: stage };
         const r: any = fromLazada(order, items, { catalog, bySku, payout: extra.payout ?? PAYOUT,
           shopForWarehouse: (code: string) => [...d.shops.values()].find((s: any) => s.lazadaWarehouse && s.lazadaWarehouse === code)?.id ?? null });
-        if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, extra.ownerPhone) }; }
+        if (r.manual) { extra.manual = [...(extra.manual ?? []), r.manual]; return { manual: r.manual.reason, ownerText: manualText(r.manual, ALERT_PH) }; }
         if (r.skip) return { skipped: r.skip };
         if (!r.order.address) { const s = d.shops.get(r.order.shopId) ?? d.hub(); r.order.address = { lat: s.lat, lng: s.lng, island: s.island }; }
         d.packages.set(r.package.id, r.package);
@@ -189,7 +234,7 @@ async function onLazada(req: Request) {
       }
       return { unchanged: stage };
     });
-    if (result?.ownerText) { try { await sendTexts([result.ownerText]); } catch (e) { console.error('sms', e); } delete result.ownerText; }
+    if (result?.ownerText) { await alertOwner([result.ownerText]); delete result.ownerText; }
     await db.from('lazada_orders').update({ result }).eq('order_id', lazId);
     results.push({ id, stage, result });
   }
@@ -319,6 +364,7 @@ async function onShop(req: Request, url: URL) {
 }
 
 // ---------- Admin ----------
+const aview = (d: any, extra: any, now: number) => ({ ...adminView(d, extra, now), ownerEmail: extra.ownerEmail ?? '' });
 const RULE_PATHS = ['rings.localKm', 'rings.nearbyKm', 'waveSize', 'offerMinutes', 'hubAfterHours', 'shipWithinHours', 'strikesToSuspend',
   'partial.maxMissingItems', 'partial.maxMissingValuePct', 'partial.sourceWithinHours', 'partial.shortageDeclinesToDrop'];
 
@@ -334,14 +380,14 @@ async function onAdmin(req: Request, url: URL) {
       return json({ events: data ?? [] });
     }
     const { d, extra, now } = await readState();
-    return json(adminView(d, extra, now));
+    return json(aview(d, extra, now));
   }
   const body = await req.json();
   if (['lzPack', 'lzLabel', 'lzRts', 'lzLabels'].includes(body.act)) {
     const result = body.act === 'lzLabels' ? await lazadaLabels((Array.isArray(body.orderIds) ? body.orderIds : []).map(String))
       : await lazadaShip(body.act, String(body.orderId), null);
     const { d, extra, now } = await readState();
-    return json({ result, view: adminView(d, extra, now) });
+    return json({ result, view: aview(d, extra, now) });
   }
   let link: string | null = null;
   if (body.act === 'addShop' || body.act === 'newLink') link = newToken();
@@ -394,6 +440,15 @@ async function onAdmin(req: Request, url: URL) {
         if (phone && !normalizePH(phone)) { r = { ok: false, reason: 'Texts can only go to Philippine mobile numbers, like 0917 123 4567.' }; break; }
         extra.ownerPhone = phone; r = { ok: true }; break;
       }
+      case 'ownerEmail': {
+        const email = String(body.email ?? '').trim().slice(0, 120);
+        if (email && !EMAIL_RE.test(email)) { r = { ok: false, reason: 'That does not look like an email address.' }; break; }
+        extra.ownerEmail = email; r = { ok: true }; break;
+      }
+      case 'testEmail': {
+        if (!EMAIL_RE.test(extra.ownerEmail ?? '')) { r = { ok: false, reason: 'Save an email address first.' }; break; }
+        r = { ok: true, testEmail: { to: extra.ownerEmail, kind: 'test', ref: 'owner', message: '888 test: order alerts by email are working.' } }; break;
+      }
       case 'testSms': {
         const to = normalizePH(s ? s.phone : extra.ownerPhone);
         if (!to) { r = { ok: false, reason: 'Add a Philippine mobile number first.' }; break; }
@@ -413,8 +468,9 @@ async function onAdmin(req: Request, url: URL) {
       }
       default: r = { ok: false, reason: 'Unknown action' };
     }
-    return { result: r, view: adminView(d, extra, now) };
+    return { result: r, view: aview(d, extra, now) };
   });
+  if (out.result?.testEmail) { const [t] = await sendEmails(out.result.testEmail.to, [out.result.testEmail]); out.result = t?.ok ? { ok: true, sent: true } : { ok: false, reason: `The email didn't send: ${(t?.response ?? '').slice(0, 160)}` }; }
   if (out.result?.test) { const [t] = await sendTexts([out.result.test]); out.result = t.ok ? { ok: true, sent: true } : { ok: false, reason: `Semaphore didn't send it: ${t.response.slice(0, 160)}` }; }
   if (link && out.result?.ok) {
     await db.from('shop_links').delete().eq('shop_id', out.result.shopId);
