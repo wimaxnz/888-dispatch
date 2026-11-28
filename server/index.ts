@@ -867,7 +867,7 @@ async function emailVoucherBuyer(batchId: string) {
   const { data: claim } = await db.from('voucher_batches').update({ buyer_emailed_at: new Date().toISOString() }).eq('id', batchId).is('buyer_emailed_at', null).select('id');
   if (!claim?.length) return { sent: false };
 
-  const page = `${SHOP_URL}/pages/my-vouchers#m=${b.manage_token}`;
+  const page = `${SHOP_URL}/pages/my-vouchers?m=${b.manage_token}`;
   const n = cards.length, plural = n === 1 ? '' : 's';
   const paidAs = b.amount_local && b.currency && b.currency !== 'PHP' ? ` (${b.currency} ${Number(b.amount_local).toLocaleString('en')})` : '';
   const subject = `Your 888 Grocery gift card${plural} ${n === 1 ? 'is' : 'are'} ready`;
@@ -921,7 +921,7 @@ async function emailVoucherCard(b: any, v: any) {
   const { data: codes } = await db.from('vouchers').select('code').eq('batch_id', b.id);
   const { count: perBatch } = await db.from('sms_log').select('id', { count: 'exact', head: true }).eq('kind', 'email').in('ref', (codes ?? []).map((c: any) => c.code)).gte('at', dayAgo);
   if ((perBatch ?? 0) >= Number(b.qty) * 3 + 5) return { ok: false, reason: 'Too many emails today. Please try again tomorrow.' };
-  const link = `${SHOP_URL}/pages/gift#t=${v.token}`;
+  const link = `${SHOP_URL}/pages/gift?t=${v.token}`;
   const name = v.staff_name ? String(v.staff_name).split(/\s+/)[0] : '';
   const code = v.gift_card_code || v.code;
   const subject = `${b.company} sent you a grocery gift for your family`;
